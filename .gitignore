@@ -1,0 +1,12 @@
+# Your personal data — never commit
+data/
+*.db
+*.xlsx
+!sample_data/*.xlsx
+
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.streamlit/secrets.toml
+.DS_Store
