@@ -1,0 +1,146 @@
+# Rules used to infer role dimensions from the job title, company name and job description.
+# Rules are checked top to bottom; the first match wins. Matching is case-insensitive and
+# on whole words/phrases. Anything inferred can be overridden per application in the app.
+
+seniority:
+  # Checked against the job title first, then the job description.
+  - name: Internship
+    keywords: [intern, internship, praktikum, praktikant, stage, working student, werkstudent,
+               placement, summer analyst]
+  - name: Graduate / trainee
+    keywords: [graduate, trainee, traineeship, apprentice, apprenticeship, fellowship, fellow,
+               early career, early careers, early talent, future talent, academy, rotational,
+               career starter, postgraduate]
+  - name: Junior / entry
+    keywords: [junior, jr, jr., entry level, entry-level, assistant, associate i, coordinator,
+               i]
+  - name: Experienced
+    keywords: [senior, sr, sr., lead, principal, head, director, manager, ii, iii, staff]
+default_seniority: Mid / unspecified
+# If the title gives no level, use years of experience asked for in the description.
+years_to_seniority:
+  - {max_years: 1, name: Junior / entry}
+  - {max_years: 4, name: Mid / unspecified}
+  - {max_years: 99, name: Experienced}
+
+industries:
+  - name: Pharma / biotech
+    companies: [roche, genentech, novartis, sandoz, astrazeneca, gsk, glaxosmithkline, pfizer,
+                sanofi, bayer, boehringer, merck, msd, ucb, lundbeck, takeda, novo nordisk,
+                johnson & johnson, j&j, janssen, bristol myers, bms, lilly, abbvie, amgen, biogen,
+                gilead, servier, ipsen, galderma, viatris, teva, astellas, otsuka, hovione, lonza,
+                csl behring, octapharma, idorsia, basilea, vifor, debiopharm, ferring, siegfried,
+                bachem, helsinn, alnylam, moderna, biontech, regeneron, vertex, daiichi, eisai]
+    keywords: [pharmaceutical, pharma, biotech, biotechnology, biopharmaceutical, drug development,
+               therapeutics, cdmo]
+  - name: CRO / clinical services
+    companies: [iqvia, medpace, parexel, icon, syneos, ppd, labcorp, fortrea, antaros, psi,
+                worldwide clinical trials, premier research, novotech, clinipace, cromsource]
+    keywords: [cro, contract research organization, contract research organisation,
+               clinical research organization, clinical services]
+  - name: Medtech / diagnostics
+    companies: [medtronic, siemens healthineers, philips, abbott, bd, becton, stryker, zimmer,
+                straumann, sonova, ypsomed, hamilton, alcon, b. braun, edwards, dentsply,
+                biotronik, roche diagnostics, qiagen, illumina, thermo fisher, mettler,
+                tecan, bruker, sophia genetics, intuitive]
+    keywords: [medical device, medical devices, medtech, diagnostics, in vitro, ivd, life science tools]
+  - name: Health tech / digital health
+    companies: []
+    keywords: [digital health, health tech, healthtech, telemedicine, health app, real world data,
+               real-world data]
+  - name: Consulting
+    companies: [mckinsey, bcg, boston consulting, bain, deloitte, pwc, ey, ernst & young, kpmg,
+                accenture, simon-kucher, zs associates, l.e.k., oliver wyman, capgemini,
+                roland berger, kearney, putnam, clarivate, evaluate, decision resources]
+    keywords: [consulting, consultancy, advisory, our clients, client projects]
+  - name: Technology / AI
+    companies: [google, deepmind, microsoft, meta, amazon, aws, apple, ibm, nvidia, openai,
+                anthropic, palantir, databricks, nebius, sap, oracle, salesforce]
+    keywords: [saas, software company, artificial intelligence company, ai startup, tech company,
+               platform company]
+  - name: Finance / insurance
+    companies: [ubs, credit suisse, julius baer, zurich insurance, swiss re, axa, allianz,
+                swiss life, raiffeisen, zkb, goldman, jp morgan, blackrock]
+    keywords: [bank, banking, insurance, asset management, wealth management, fintech]
+  - name: Publishing / media
+    companies: [mdpi, springer, elsevier, frontiers, nature, wiley, taylor & francis, karger]
+    keywords: [publisher, publishing, journal, editorial]
+  - name: Academia / public / non-profit
+    companies: [eth, epfl, uzh, university, universität, hospital, spital, wef, who, wipo,
+                unicef, institute, foundation, uefa, red cross]
+    keywords: [university, research institute, non-profit, nonprofit, ngo, public sector,
+               foundation, academic]
+  - name: Consumer / other industry
+    companies: [nestle, nestlé, l'oréal, loreal, unilever, procter, p&g, red bull, lego, dsm,
+                firmenich, givaudan, syngenta, unipart]
+    keywords: [consumer goods, fmcg, retail, manufacturing, chemicals]
+default_industry: Unknown
+
+# Known companies -> size. Everything else is "Unknown" until you set it.
+company_size:
+  Large (1000+): [roche, novartis, astrazeneca, gsk, pfizer, sanofi, bayer, boehringer, merck,
+                  msd, ucb, lundbeck, takeda, novo nordisk, johnson & johnson, janssen,
+                  bristol myers, lilly, abbvie, amgen, biogen, gilead, iqvia, medpace, parexel,
+                  icon, syneos, labcorp, thermo fisher, medtronic, siemens, philips, abbott,
+                  ubs, deloitte, pwc, ey, kpmg, accenture, mckinsey, bcg, bain, google,
+                  microsoft, amazon, nestle, nestlé, l'oréal, lonza, hovione, sandoz,
+                  galderma, julius baer, swiss re, zurich insurance, capgemini, sonova,
+                  straumann, alcon, ipsen, servier, viatris, teva, csl behring]
+size_options: [Startup (<50), SME (50–999), Large (1000+), Unknown]
+
+# Phrases in a job description that say something about work permits.
+work_authorization:
+  - name: Sponsorship offered
+    keywords: [visa sponsorship, sponsorship available, we sponsor, will sponsor, relocation support,
+               relocation package, support with work permit, work permit support]
+  - name: Requires existing permit / EU-EFTA
+    keywords: [valid work permit, existing work permit, right to work, eligible to work,
+               eu/efta, eu or efta, eu-efta, swiss or eu, swiss/eu, no sponsorship, not able to sponsor,
+               unable to sponsor, cannot sponsor, without sponsorship, work authorization required,
+               must be authorized to work, arbeitsbewilligung, aufenthaltsbewilligung]
+default_work_authorization: Not stated
+
+languages:
+  - name: German required
+    keywords: [fluent german, fluency in german, german fluent, german (c1, german c1, german c2,
+               business fluent german, native german, excellent german, strong german,
+               german is required, german required, german is mandatory, verhandlungssicher,
+               fließend deutsch, fliessend deutsch, sehr gute deutschkenntnisse,
+               deutsch und englisch, deutsch & englisch]
+  - name: French required
+    keywords: [fluent french, fluency in french, french c1, native french, excellent french,
+               french is required, french required, français courant, francais courant]
+  - name: German a plus
+    keywords: [german is a plus, german a plus, german is an advantage, german would be an advantage,
+               german is advantageous, knowledge of german, basic german, german desirable,
+               german preferred, german is beneficial]
+default_language: No extra language stated
+
+work_mode:
+  - name: Remote
+    keywords: [fully remote, remote-first, 100% remote, remote position, work from anywhere]
+  - name: Hybrid
+    keywords: [hybrid, home office, work from home, flexible working, remote days]
+  - name: On-site
+    keywords: [on-site, onsite, on site, in-office, in the office, laboratory-based, lab-based]
+default_work_mode: Not stated
+
+# Skills to look for in job descriptions. Items marked case_sensitive match exactly (e.g. "R").
+skills:
+  Programming: [python, sql, bash, matlab, java, c++, javascript, julia, sas, stata, spss, git, linux,
+                {term: R, case_sensitive: true}]
+  Data & ML: [machine learning, deep learning, statistics, statistical analysis, nlp, natural language processing,
+              computer vision, pytorch, tensorflow, scikit-learn, pandas, data visualisation, data visualization,
+              power bi, tableau, excel, llm, large language models, generative ai, time series, bayesian,
+              data pipelines, etl, cloud, aws, azure, google cloud, docker, kubernetes, spark]
+  Clinical & regulatory: [gcp, ich-gcp, good clinical practice, clinical trials, clinical trial, ctms, edc, etmf, tmf,
+                          pharmacovigilance, regulatory affairs, gmp, gxp, protocol, site management,
+                          monitoring, real world evidence, epidemiology, biostatistics, cdisc, sdtm, adam,
+                          medical writing, iso 13485, mdr]
+  Neuroscience & imaging: [neuroscience, neuroimaging, mri, fmri, eeg, meg, pet, image analysis, imaging,
+                           electrophysiology, cognitive, psychology, psychiatry, neurology, cohort]
+  Lab: [cell culture, pcr, qpcr, flow cytometry, elisa, western blot, microscopy, crispr, sequencing, ngs]
+  Business: [stakeholder management, project management, market access, marketing, sales, business development,
+             strategy, presentation skills, consulting, product management, agile, scrum, budgeting,
+             competitive intelligence, kol, medical affairs]
+# Spoken languages are handled by the `languages` rules above, not as skills.
