@@ -446,3 +446,76 @@ def weekly_counts(df: pd.DataFrame, weeks: int = 12, today: date | None = None) 
     wk = (df["date_applied"] - pd.to_timedelta(df["date_applied"].dt.weekday, unit="D")).dt.normalize()
     counts = wk.value_counts().reindex(idx, fill_value=0)
     return pd.DataFrame({"week": idx, "applied": counts.to_numpy()})
+
+
+# ---------------------------------------------------------------------------
+# Conversion metrics (Analytics page)
+# ---------------------------------------------------------------------------
+
+LATER_ROUNDS = {"Final interview", "Offer", "Accepted"}
+OFFER_STAGES = {"Offer", "Accepted"}
+
+
+def _ratio(num: int, den: int) -> dict:
+    lo, hi = wilson_interval(num, den)
+    return {"numerator": int(num), "denominator": int(den), "rate": (num / den) if den else None,
+            "ci_low": lo, "ci_high": hi}
+
+
+def conversion_metrics(df: pd.DataFrame, too_new_days: int = 21) -> dict:
+    """The headline conversion rates between pipeline steps.
+
+    Each rate only counts applications that could have reached the step: e.g. "interview to offer"
+    uses applications that reached an interview, and very recent unanswered applications are left out.
+    """
+    if df.empty:
+        return {}
+    j = judged(df, too_new_days)
+    furthest = j["furthest_stage"]
+    interviewed = j[j["reached_interview"]]
+    later = interviewed["furthest_stage"].isin(LATER_ROUNDS)
+    offers = j["furthest_stage"].isin(OFFER_STAGES) | j["status"].isin(OFFER_STAGES)
+    rt = df["days_to_response"].dropna()
+    return {
+        "application_to_response": _ratio(int(j["responded"].sum()), len(j)),
+        "application_to_interview": _ratio(int(j["reached_interview"].sum()), len(j)),
+        "interview_to_later_round": _ratio(int(later.sum()), len(interviewed)),
+        "interview_to_offer": _ratio(int(offers[j["reached_interview"]].sum()), len(interviewed)),
+        "application_to_offer": _ratio(int(offers.sum()), len(j)),
+        "median_days_to_response": float(rt.median()) if len(rt) else None,
+        "response_time_samples": int(len(rt)),
+        "judged": int(len(j)),
+        "excluded_recent": int(len(df) - len(j)),
+        "_furthest_counts": furthest.value_counts().to_dict(),
+    }
+
+
+def rates_by(df: pd.DataFrame, dim: str, too_new_days: int = 21, min_n: int = 1) -> pd.DataFrame:
+    """Response, interview and offer rate per value of a dimension (e.g. offer rate by job family)."""
+    j = judged(df, too_new_days)
+    if j.empty:
+        return pd.DataFrame()
+    key = j[dim].astype("object").where(j[dim].notna(), "Not recorded").astype(str)
+    offers = j["furthest_stage"].isin(OFFER_STAGES) | j["status"].isin(OFFER_STAGES)
+    g = j.assign(_k=key, _offer=offers).groupby("_k")
+    out = pd.DataFrame({
+        "applied": g.size(),
+        "responses": g["responded"].sum().astype(int),
+        "interviews": g["reached_interview"].sum().astype(int),
+        "offers": g["_offer"].sum().astype(int),
+    })
+    out["response_rate"] = out["responses"] / out["applied"]
+    out["interview_rate"] = out["interviews"] / out["applied"]
+    out["offer_rate"] = out["offers"] / out["applied"]
+    out["interview_to_offer"] = (out["offers"] / out["interviews"]).where(out["interviews"] > 0)
+    out.index.name = "value"
+    out = out[out["applied"] >= min_n]
+    return out.sort_values(["applied"], ascending=False).reset_index()
+
+
+def response_time_by(df: pd.DataFrame, dim: str) -> pd.DataFrame:
+    d = df.dropna(subset=["days_to_response"])
+    if d.empty:
+        return pd.DataFrame(columns=["value", "count", "median"])
+    g = d.groupby(d[dim].astype(str))["days_to_response"]
+    return pd.DataFrame({"count": g.size(), "median": g.median()}).rename_axis("value").reset_index()

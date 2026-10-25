@@ -24,56 +24,153 @@ years_to_seniority:
   - {max_years: 99, name: Experienced}
 
 industries:
-  - name: Pharma / biotech
-    companies: [roche, genentech, novartis, sandoz, astrazeneca, gsk, glaxosmithkline, pfizer,
-                sanofi, bayer, boehringer, merck, msd, ucb, lundbeck, takeda, novo nordisk,
-                johnson & johnson, j&j, janssen, bristol myers, bms, lilly, abbvie, amgen, biogen,
-                gilead, servier, ipsen, galderma, viatris, teva, astellas, otsuka, hovione, lonza,
-                csl behring, octapharma, idorsia, basilea, vifor, debiopharm, ferring, siegfried,
-                bachem, helsinn, alnylam, moderna, biontech, regeneron, vertex, daiichi, eisai]
-    keywords: [pharmaceutical, pharma, biotech, biotechnology, biopharmaceutical, drug development,
-               therapeutics, cdmo]
-  - name: CRO / clinical services
-    companies: [iqvia, medpace, parexel, icon, syneos, ppd, labcorp, fortrea, antaros, psi,
-                worldwide clinical trials, premier research, novotech, clinipace, cromsource]
-    keywords: [cro, contract research organization, contract research organisation,
-               clinical research organization, clinical services]
-  - name: Medtech / diagnostics
-    companies: [medtronic, siemens healthineers, philips, abbott, bd, becton, stryker, zimmer,
-                straumann, sonova, ypsomed, hamilton, alcon, b. braun, edwards, dentsply,
-                biotronik, roche diagnostics, qiagen, illumina, thermo fisher, mettler,
-                tecan, bruker, sophia genetics, intuitive]
-    keywords: [medical device, medical devices, medtech, diagnostics, in vitro, ivd, life science tools]
-  - name: Health tech / digital health
-    companies: []
-    keywords: [digital health, health tech, healthtech, telemedicine, health app, real world data,
-               real-world data]
-  - name: Consulting
-    companies: [mckinsey, bcg, boston consulting, bain, deloitte, pwc, ey, ernst & young, kpmg,
-                accenture, simon-kucher, zs associates, l.e.k., oliver wyman, capgemini,
-                roland berger, kearney, putnam, clarivate, evaluate, decision resources]
-    keywords: [consulting, consultancy, advisory, our clients, client projects]
-  - name: Technology / AI
-    companies: [google, deepmind, microsoft, meta, amazon, aws, apple, ibm, nvidia, openai,
-                anthropic, palantir, databricks, nebius, sap, oracle, salesforce]
-    keywords: [saas, software company, artificial intelligence company, ai startup, tech company,
-               platform company]
-  - name: Finance / insurance
-    companies: [ubs, credit suisse, julius baer, zurich insurance, swiss re, axa, allianz,
-                swiss life, raiffeisen, zkb, goldman, jp morgan, blackrock]
-    keywords: [bank, banking, insurance, asset management, wealth management, fintech]
-  - name: Publishing / media
-    companies: [mdpi, springer, elsevier, frontiers, nature, wiley, taylor & francis, karger]
-    keywords: [publisher, publishing, journal, editorial]
-  - name: Academia / public / non-profit
-    companies: [eth, epfl, uzh, university, universität, hospital, spital, wef, who, wipo,
-                unicef, institute, foundation, uefa, red cross]
-    keywords: [university, research institute, non-profit, nonprofit, ngo, public sector,
-               foundation, academic]
-  - name: Consumer / other industry
-    companies: [nestle, nestlé, l'oréal, loreal, unilever, procter, p&g, red bull, lego, dsm,
-                firmenich, givaudan, syngenta, unipart]
-    keywords: [consumer goods, fmcg, retail, manufacturing, chemicals]
+  # Checked top to bottom: company names first (all rules), then description keywords.
+  - name: Pharma & biotech
+    companies: [ascendis, novonordisk, norgine, zoetis, moonlake, healx, bactobio, oncobit, neurosoft, uniphar, elanco, roche, genentech, novartis, sandoz, astrazeneca, gsk, glaxosmithkline, haleon, pfizer, sanofi,
+                bayer, boehringer, boehringer ingelheim, merck, msd, ucb, lundbeck, takeda, novo nordisk, novo,
+                johnson & johnson, j&j, janssen, bristol myers, bristol myers squibb, bms, lilly, eli lilly, abbvie,
+                amgen, biogen, gilead, servier, ipsen, galderma, viatris, teva, astellas, otsuka, csl behring, csl,
+                octapharma, idorsia, basilea, vifor, debiopharm, ferring, helsinn, alnylam, moderna, biontech,
+                regeneron, vertex, daiichi, daiichi sankyo, eisai, chugai, menarini, chiesi, grünenthal, grunenthal,
+                stada, zentiva, recordati, almirall, esteve, pierre fabre, organon, jazz, incyte, beigene, argenx,
+                genmab, ac immune, molecular partners, santhera, polyphor, numab, alcon pharma, medac, angelini,
+                kyowa kirin, sumitomo, shionogi, mundipharma, insmed, ultragenyx, sobi, leo pharma, orion]
+    keywords: [pharmaceutical, pharmaceuticals, pharma, biotech, biotechnology, biopharmaceutical, biopharma,
+               drug development, therapeutics, biologics, vaccines, gene therapy, cell therapy, rare disease]
+  - name: CDMO & contract manufacturing
+    companies: [lonza, hovione, siegfried, bachem, catalent, samsung biologics, wuxi, fujifilm diosynth,
+                recipharm, cambrex, patheon, polypeptide, carbogen, dottikon, corden]
+    keywords: [cdmo, cmo, contract development, contract manufacturing]
+  - name: CRO & clinical services
+    companies: [cellcarta, discovery life sciences, optimapharm, rti, iqvia, medpace, parexel, icon, syneos, ppd, labcorp, fortrea, antaros, psi, worldwide clinical trials,
+                premier research, novotech, clinipace, cromsource, veristat, cytel, emmes, signant, clario,
+                bioclinica, ert, medidata, veeva, advanced clinical, precision for medicine, propharma, voisin,
+                linical, simbec, quotient sciences, charles river, inotiv, evotec, crown bioscience]
+    keywords: [cro, contract research organization, contract research organisation, clinical research organization,
+               clinical services, functional service provider, fsp]
+  - name: Medtech & medical devices
+    companies: [cordis, teleflex, med-el, maico, mylife, abott, medtronic, siemens healthineers, philips, abbott, bd, becton, stryker, zimmer, zimmer biomet,
+                straumann, sonova, ypsomed, hamilton, alcon, b. braun, edwards, dentsply, biotronik, intuitive,
+                boston scientific, smith & nephew, coloplast, ambu, demant, cochlear, getinge, karl storz, ottobock,
+                medela, ge healthcare, olympus, terumo, baxter, fresenius, hologic, resmed, insulet, dexcom,
+                align, nobel biocare, coltene, schiller, implantica, medacta, mathys]
+    keywords: [medical device, medical devices, medtech, implant, implants, surgical, orthopaedic, orthopedic]
+  - name: Diagnostics & life-science tools
+    companies: [roche diagnostics, qiagen, illumina, thermo fisher, thermo fisher scientific, mettler, mettler toledo,
+                tecan, bruker, sophia genetics, agilent, waters, danaher, beckman, cepheid, bio-rad, biorad,
+                biomérieux, biomerieux, sysmex, perkinelmer, revvity, sartorius, merck kgaa, eppendorf, oxford
+                nanopore, 10x genomics, pacbio, standard biotools, unilabs, synlab, dr risch, viollier]
+    keywords: [diagnostics, in vitro, ivd, life science tools, laboratory equipment, instruments, sequencing]
+  - name: Hospitals & healthcare providers
+    companies: [hospital, spital, klinik, clinic, universitätsspital, usz, insel, chuv, hug, hirslanden,
+                kantonsspital, nhs, charité, charite, psychiatric, psychiatrische, medbase]
+    keywords: [hospital, healthcare provider, patient care, clinic, outpatient, inpatient]
+  - name: Health insurance & payers
+    companies: [css, helsana, swica, sanitas, visana, groupe mutuel, concordia, kpt, atupri, assura]
+    keywords: [health insurance, krankenkasse, payer]
+  - name: Digital health & health tech
+    companies: [doctolib, ada health, kaia, oviva, sword health, alan, flatiron, tempus, owkin, aiforia,
+                biofourmis, huma, babylon, mindmaze, ava, bioversys, nuvoair, idoven, humanis]
+    keywords: [digital health, health tech, healthtech, telemedicine, telehealth, health app, digital therapeutics,
+               real world data, real-world data, health data, medtech software]
+  - name: Consulting & professional services
+    companies: [simon kucher, ekimetrics, life sciences strategy, costello medical, mckinsey, bcg, boston consulting, bain, deloitte, pwc, ey, ernst & young, kpmg, accenture,
+                simon-kucher, zs, zs associates, l.e.k., lek, oliver wyman, capgemini, roland berger, kearney,
+                putnam, clarivate, evaluate, decision resources, alira health, ipsos, trinity life sciences,
+                lifescience dynamics, syneos health consulting, cognizant, infosys, wipro, tcs, ibm consulting,
+                accenture song, bearingpoint, mhp, porsche consulting, adl, arthur d. little, strategy&, efficio,
+                elca, ergon, avanade]
+    keywords: [consulting, consultancy, advisory, our clients, client projects, professional services]
+  - name: Market research & data providers
+    companies: [niq, nielseniq, experian, ipsos, nielsen, kantar, gfk, gartner, forrester, euromonitor, iqvia institute, citeline,
+                globaldata, evaluate pharma, cortellis, statista]
+    keywords: [market research, market intelligence, data provider]
+  - name: Technology & software
+    companies: [bending spoons, trivago, tiktok, bytedance, pigment, intersystems, avaloq, quantcast, lightly, agile robots, galaxus, sonar, google, alphabet, deepmind, microsoft, meta, amazon, aws, apple, ibm, nvidia, openai, anthropic,
+                palantir, databricks, nebius, sap, oracle, salesforce, adobe, atlassian, spotify, uber, airbnb,
+                booking, zalando, siemens, cisco, intel, amd, qualcomm, sony, samsung, logitech, u-blox, scandit,
+                nexthink, proton, sonarsource, open systems, beekeeper, getyourguide, digitec galaxus,
+                ricardo, tutti, smg, swisscom digital, mistral, huggingface, hugging face, cohere, stability]
+    keywords: [saas, software company, software, tech company, platform company, cloud, ai startup,
+               artificial intelligence company, machine learning company]
+  - name: Banking & financial services
+    companies: [jane street, man group, qube, qube research, citadel, jump trading, computershare, optiver, ubs, credit suisse, julius baer, raiffeisen, zkb, zürcher kantonalbank, postfinance, vontobel,
+                pictet, lombard odier, ebs, efg, goldman, goldman sachs, jp morgan, jpmorgan, morgan stanley,
+                blackrock, citi, hsbc, barclays, deutsche bank, bnp paribas, revolut, n26, wise, six group,
+                swissquote, yuh, neon, leonteq, partners group, lgt]
+    keywords: [bank, banking, asset management, wealth management, fintech, private equity, venture capital,
+               investment firm, hedge fund, payments]
+  - name: Insurance & reinsurance
+    companies: [suva, zurich insurance, swiss re, axa, allianz, swiss life, generali, baloise, helvetia,
+                mobiliar, die mobiliar, chubb, munich re, hannover re, partnerre, scor, vaudoise]
+    keywords: [insurance, reinsurance, insurer, underwriting]
+  - name: Publishing, media & entertainment
+    companies: [wpp, publicis, omnicom, mdpi, springer, springer nature, elsevier, frontiers, nature, wiley, taylor & francis, karger,
+                ringier, tamedia, tx group, nzz, srg, srf, bbc, netflix, disney, warner, axel springer, reuters,
+                bloomberg media]
+    keywords: [publisher, publishing, journal, editorial, media company, broadcaster, news, entertainment]
+  - name: Academia & research institutes
+    companies: [eth, epfl, uzh, unibas, unibe, unige, unil, usi, university, universität, universitat, université,
+                hochschule, zhaw, fhnw, hslu, institute, institut, max planck, fmi, friedrich miescher, wyss,
+                sib, swiss institute of bioinformatics, empa, eawag, psi institute, paul scherrer, embl, cern,
+                riken, broad institute, wellcome sanger, crick]
+    keywords: [university, research institute, academic, faculty, laboratory of, research group]
+  - name: International organisations & NGOs
+    companies: [ao foundation, wef, world economic forum, who, world health organization, wipo, unicef, unhcr, undp, unaids,
+                icrc, red cross, msf, médecins sans frontières, gavi, global fund, cepi, dndi, mmv, oecd,
+                wto, ilo, iom, unops, gates foundation, wellcome, uefa, fifa, ioc, olympic]
+    keywords: [non-profit, nonprofit, ngo, foundation, international organization, international organisation,
+               humanitarian, charity, united nations]
+  - name: Government & public sector
+    companies: [swissmedic, foph, bundesamt, federal office, canton, kanton, stadt zürich, city of,
+                ministry, nih, ema, european medicines agency, fda, mhra, european commission, snsf, swissuniversities]
+    keywords: [government, public sector, federal, cantonal, ministry, agency, public administration, regulator]
+  - name: Consumer goods & retail
+    companies: [l'oreal, pernod ricard, burberry, vf corp, about you, scentbird, nestle, nestlé, l'oréal, loreal, unilever, procter, p&g, red bull, lego, coca-cola, pepsico,
+                mondelez, lindt, emmi, migros, coop, ikea, h&m, nike, adidas, on running, kering, lvmh, richemont,
+                swatch, rolex, beiersdorf, henkel, reckitt, haleon consumer, kenvue, mars, danone, kraft heinz]
+    keywords: [consumer goods, fmcg, retail, e-commerce, ecommerce, fashion, luxury, food and beverage, beverages]
+  - name: Chemicals, materials & agriculture
+    companies: [omya, dsm, dsm-firmenich, firmenich, givaudan, syngenta, basf, clariant, sika, ems-chemie, lanxess,
+                evonik, covestro, dow, dupont, bayer crop science, corteva, symrise, croda, novozymes, novonesis]
+    keywords: [chemicals, chemical company, specialty chemicals, materials, agriculture, agritech, crop science,
+               flavours, fragrances]
+  - name: Energy, utilities & cleantech
+    companies: [equans, muehlhan, kanadevia, climate x, edp, abb, axpo, alpiq, bkw, ewz, shell, bp, totalenergies, equinor, enel, iberdrola, orsted, vestas,
+                siemens energy, climeworks, meyer burger, hitachi energy]
+    keywords: [energy, utilities, renewable, renewables, cleantech, climate tech, oil and gas, power, solar, wind]
+  - name: Industrial, engineering & manufacturing
+    companies: [schindler, sulzer, georg fischer, gf, bühler, buhler, stadler, rieter, oerlikon, geberit, kuka,
+                bosch, siemens industry, schneider electric, hilti, liebherr, unipart, sfs, bobst, landis+gyr,
+                endress+hauser, belimo, komax, inficon, vat group, ruag, pilatus, airbus, boeing, rolls-royce]
+    keywords: [industrial, engineering company, manufacturing company, machinery, automation, aerospace, defence,
+               defense, automotive]
+  - name: Logistics, transport & travel
+    companies: [dhl, kuehne+nagel, kuehne + nagel, panalpina, dsv, sbb, swiss international air lines, lufthansa, easyjet, swissport,
+                swiss post, die post, maersk, ups, fedex, hotelplan, kuoni, booking.com, expedia]
+    keywords: [logistics, transport, transportation, shipping, airline, travel, hospitality, hotel, tourism]
+  - name: Telecom
+    companies: [swisscom, sunrise, salt mobile, vodafone, deutsche telekom, orange, ericsson, nokia, huawei]
+    keywords: [telecom, telecommunications, mobile network, connectivity]
+  - name: Real estate & construction
+    companies: [implenia, swiss prime site, psp, allreal, mobimo, jll, cbre, cushman, colliers, losinger]
+    keywords: [real estate, property, construction, architecture, proptech]
+  - name: Recruitment & staffing
+    companies: [barrington james, panda international, job impuls, jobgether, adecco, randstad, manpower, manpowergroup, hays, michael page, page group, robert half, kelly,
+                spring professional, coople, gi group, amaris, alten, akkodis, experis, hudson, spencer ogden,
+                proclinical, cpl, real staffing]
+    keywords: [recruitment agency, staffing, executive search, headhunter, talent solutions]
+  - name: Education & edtech
+    companies: [coursera, edx, udemy, duolingo, nebius academy, goethe, berlitz, inlingua, ef education,
+                le rosey, international school, kantonsschule]
+    keywords: [edtech, education company, school, e-learning, learning platform]
+  - name: Legal services
+    companies: [lenz & staehelin, bär & karrer, homburger, niederer kraft frey, walder wyss, baker mckenzie,
+                clifford chance, freshfields, linklaters, allen & overy]
+    keywords: [law firm, legal services]
+  - name: Sport & fitness
+    companies: [uefa, fifa, ioc, on running, decathlon, peloton, whoop, garmin, strava, wingo]
+    keywords: [sport, sports, fitness, athletics]
 default_industry: Unknown
 
 # Known companies -> size. Everything else is "Unknown" until you set it.

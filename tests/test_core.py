@@ -14,13 +14,13 @@ CAT = Categoriser.from_yaml()
 @pytest.mark.parametrize("title,expected", [
     ("Clinical Trial Assistant (Switzerland)", "Clinical operations"),
     ("Assistant CRA", "Clinical operations"),
-    ("Junior Data Analyst", "Data science / AI"),
-    ("Applied AI Engineer", "Data science / AI"),
-    ("Hovione Global Graduate Program 2026", "Graduate / trainee programme"),
-    ("Medical Writer", "Medical / regulatory / safety"),
-    ("Junior Brand Manager", "Commercial / marketing"),
-    ("Business Analyst", "Consulting / business analysis"),
-    ("Maintenance Technician", "Other"),  # "ai" must not match inside words
+    ("Junior Data Analyst", "Data & business intelligence analysis"),
+    ("Applied AI Engineer", "Machine learning & AI"),
+    ("Hovione Global Graduate Program 2026", "Graduate / rotational programme (general)"),
+    ("Medical Writer", "Medical / scientific writing & publishing"),
+    ("Junior Brand Manager", "Marketing & brand"),
+    ("Business Analyst", "Business analysis & operations"),
+    ("Ice Cream Taster", "Other"),  # "ai" must not match inside words, e.g. "maintain"
 ])
 def test_role_area(title, expected):
     assert CAT.role_area(title) == expected
@@ -58,7 +58,7 @@ def store(tmp_path):
     s.move_stage(a, "Interview", "2026-09-11")
     s.move_stage(a, "Rejected", "2026-09-20")
     s.add_application("Beta", "Clinical Trial Assistant", "2026-08-01", status="Ghosted", location="Basel")
-    s.add_application("Gamma", "Data Analyst", "2026-10-10", location="London")
+    s.add_application("Gamma", "Data Scientist", "2026-10-10", location="London")
     return s
 
 
@@ -68,8 +68,8 @@ def test_enrich_and_breakdown(store):
     assert acme.reached_interview and acme.outcome == "Interviewed"
     assert acme.days_to_response == 10
     b = A.breakdown(df, "role_area").set_index("role_area")
-    assert b.loc["Data science / AI", "applied"] == 2
-    assert b.loc["Data science / AI", "interviews"] == 1
+    assert b.loc["Data science", "applied"] == 2
+    assert b.loc["Data science", "interviews"] == 1
     assert b.loc["Clinical operations", "ghost_rate"] == 1.0
     f = A.funnel(df).set_index("step")["count"]
     assert f["Applied"] == 3 and f["Interview"] == 1
@@ -85,9 +85,9 @@ def test_follow_ups(store):
 def test_override(store):
     apps = store.applications()
     gid = int(apps[apps.company == "Gamma"].id.iloc[0])
-    store.update_application(gid, role_area_override="Research / academia")
+    store.update_application(gid, role_area_override="Academic research")
     df = A.enrich(store.applications(), store.events(), CAT)
-    assert df[df.id == gid].role_area.iloc[0] == "Research / academia"
+    assert df[df.id == gid].role_area.iloc[0] == "Academic research"
 
 
 def test_import_messy_excel(tmp_path):

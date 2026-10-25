@@ -34,9 +34,9 @@ def test_seniority_from_years_in_jd():
 
 
 def test_industry_and_size():
-    assert INF.industry("F. Hoffmann-La Roche") == "Pharma / biotech"
-    assert INF.industry("IQVIA") == "CRO / clinical services"
-    assert INF.industry("Acme", "We are a contract research organization") == "CRO / clinical services"
+    assert INF.industry("F. Hoffmann-La Roche") == "Pharma & biotech"
+    assert INF.industry("IQVIA") == "CRO & clinical services"
+    assert INF.industry("Acme", "We are a contract research organization") == "CRO & clinical services"
     assert INF.industry("Acme") == "Unknown"
     assert INF.company_size("Novartis") == "Large (1000+)"
 
@@ -119,9 +119,9 @@ def test_jd_match(tmp_path):
 def test_override_beats_inference(tmp_path):
     s = Store(tmp_path / "o.db")
     a = s.add_application("Novartis", "Data Scientist", "2026-05-01")
-    s.update_application(a, industry="Consulting", seniority="Experienced")
+    s.update_application(a, industry="Consulting & professional services", seniority="Experienced")
     row = enrich(s).iloc[0]
-    assert row["industry"] == "Consulting" and row["industry_auto"] == "Pharma / biotech"
+    assert row["industry"] == "Consulting & professional services" and row["industry_auto"] == "Pharma & biotech"
     assert row["seniority"] == "Experienced"
 
 

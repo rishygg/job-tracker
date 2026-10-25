@@ -1,157 +1,111 @@
 # Job Tracker
 
-Track your job applications and find out **which kinds of roles you actually succeed in**.
+A private, local job-application tracker that tells you **which kinds of roles you actually succeed in** — and
+what to do today.
 
-Most trackers count how many applications you've sent. This one works out your personal success
-rate across every dimension of a role: job family, seniority, industry, location, company size,
-work permit and language requirements, application channel, how soon after posting you applied,
-and how well your skills match the job description. Then it tells you where to spend your next
-applications.
+- **Overview** – today's priorities (follow-ups, likely-ghosted applications, due reminders, upcoming interviews,
+  thank-you notes), your active pipeline, upcoming interviews and key insights.
+- **Applications** – a drag-and-drop board and a sortable table. Every application has a detail panel with a
+  stage timeline (schedule interviews with future dates, edit or remove stages), the job description with skills
+  and requirement detection, reminders and editable role dimensions.
+- **Analytics** – conversion rates between every pipeline step (application → response → first interview →
+  later round → offer), median time to response, response/interview/offer rate by job family or any other
+  dimension, a funnel, a flow diagram, the Role Success Scorecard and a two-dimension heatmap.
+- **Quick add** – press **N** anywhere, paste a job description, and title, company, seniority, industry, work
+  permit, language, work mode and skills are filled in. Uncertain values are highlighted for review.
+- **Consistent filters** – job family, industry, seniority, location, channel and date range apply to the board,
+  the table, the insights and every chart.
 
-It's a [Streamlit](https://streamlit.io) app backed by a local SQLite file. Your data never leaves
-your machine.
+Everything runs on your machine. Your data lives in a local SQLite file that is never committed.
 
-## Features
-
-### Role Success Scorecard
-- Success rate for every value of 14 dimensions: job family, seniority, industry, location, company size,
-  work permit requirement, language requirement, work mode, application channel, days between posting
-  and applying, skills match with the job description, CV version, your own fit rating, and weekday.
-- Choose what counts as success: positive response (screening or further), interview, or any reply.
-- **Adjusted rates** pull small groups towards your average so 1 out of 2 doesn't outrank 5 out of 30, and
-  95% intervals show how sure each number is. Every group gets a verdict: *Strength*, *Promising*,
-  *About average*, *Below average*, *Weak spot* or *Too few to tell*.
-- "Where you do best / where you struggle" across all dimensions at once, and a heatmap to combine any two
-  (for example job family × seniority).
-- Recent applications that haven't had time to get a reply are left out, so they don't drag rates down.
-
-### Job description analysis
-- Paste the posting and the app detects **skills**, **years of experience**, **language requirements**
-  (including postings written in German), **work permit / sponsorship** wording, **work mode** and seniority.
-- Add your skills once in Settings to get a **match score** for every posting, a list of the skills you're
-  missing most often, and success rates for postings that mention each skill.
-
-### Spreadsheet-style editing
-- Edit applications directly in a grid like Excel: change a status, fix a date, retag a job family,
-  add rows at the bottom, delete rows. Changes are saved in one go, and status changes are logged with the date.
-- A details panel per application for the job description, notes, stage history and analysis.
-- Inferred values (seniority, industry, ...) show as *Auto*; pick a value to override it for that application.
-
-### Pipeline and follow-ups
-- Dashboard with takeaways, a stage **funnel** with conversion and drop-off per step, a **flow (Sankey) diagram**
-  of where applications end up, applications per month, and weekly pace against your goal.
-- Stage tracking: Applied → Screening → Interview → Final interview → Offer, plus Rejected, Ghosted, Withdrawn.
-- Follow-ups page lists applications that have gone quiet, with one-click *Followed up / Rejected / Ghosted*.
-- Duplicate warning when you add a role you've already applied to, and a list of earlier applications to the
-  same company.
-
-### Import and export
-- Import an existing Excel or CSV tracker; the header row and common column names are detected automatically.
-- Export everything to Excel (applications + stage history), which can be imported again. Download a database
-  backup.
+> Coming next: **Discover** (CV-vs-job fit analysis with a local Ollama model, separating essential from preferred
+> requirements, and a target CV/cover letter) and **Career development** (interview learning journal,
+> personalised practice, story bank, skills report and industry notes).
 
 ## Quick start
+
+You only need Python 3.10+. The web interface is pre-built and ships with the package.
 
 ```bash
 git clone https://github.com/<you>/job-tracker.git
 cd job-tracker
 python -m venv .venv
-source .venv/bin/activate          # Windows Git Bash: source .venv/Scripts/activate
-pip install -r requirements.txt
-python -m streamlit run app.py
+source .venv/bin/activate            # Windows Git Bash: source .venv/Scripts/activate
+python -m pip install -r requirements.txt
+python -m jobtracker
 ```
 
-The app opens at http://localhost:8501. Load the fictional sample data to look around, or go to
-**Import & export** and upload your own tracker. Then add your skills under **Settings**.
+Your browser opens at http://localhost:8501. Load the sample data from **Settings → Import & export** to look
+around, or import your own spreadsheet there. Add your skills under **Settings → Profile & goals** to get
+skills-match scores.
 
-> On Windows, if `streamlit` isn't found, use `python -m streamlit run app.py`.
+Options: `python -m jobtracker --port 8600 --no-browser`. To keep the database elsewhere, set
+`JOBTRACKER_DB=/path/to/tracker.db`.
 
-## Getting the most out of it
+## How things are worked out
 
-The scorecard gets more useful the more you record per application:
-
-| Record this | To learn |
+| Dimension | Source |
 |---|---|
-| Date posted | Whether applying early improves your odds |
-| Job description | Skills match, language and permit requirements, seniority |
-| Channel (LinkedIn, referral, ...) | Which channels work for you |
-| Stages as they happen | Where you drop out, and how long companies take to reply |
-| CV version | Which CV gets more replies |
-| Fit rating (1–5) | Whether your gut feeling about a role is right |
+| Job family (40+) | Keywords in the job title, `config/categories.yaml` |
+| Location group | Keywords in the location |
+| Seniority | Title keywords (intern, graduate, junior, senior…), then years of experience asked in the description |
+| Industry (28) | Company name lists, then description keywords, `config/dimensions.yaml` |
+| Company size | Known-company list |
+| Work permit, language, work mode | Phrases in the job description (including postings written in German) |
+| Skills match | Skills found in the description that are in your profile |
 
-## Importing your tracker
+Every inferred value shows as **Auto** and keeps updating if you edit the description or the rules. Pick a value
+to set it yourself. Rules can be edited in **Settings → Categorisation rules**, which also lists titles and
+companies that don't match any rule yet.
 
-The importer finds the first row that has a company column and a position/role column, and maps these
-columns when it finds them (case-insensitive):
-
-| Field | Recognised column names |
-|---|---|
-| Company | Company, Employer, Organisation |
-| Position | Position, Role, Job title, Title |
-| Date applied | Date Applied, Application date, Applied on |
-| Date posted | Date Posted, Posting date, Posted on |
-| Status | Application Status, Status, Stage |
-| Final status | Final Status, Outcome, Result |
-| Location | Location, City, Country, Details |
-| Job description | Job Description, Description, JD |
-| Source | Source, Channel, Found via |
-| Contact | Hiring Manager, Contact, Recruiter |
-| Link | Applicant Portal, URL, Link |
-| Also | Seniority, Industry, Company Size, Work Mode, CV Version, Fit, Salary, Notes |
-
-Statuses such as *Submitted*, *Followed up*, *Interview*, *Rejected*, *Ghosted* and *Offer* are mapped to
-stages. Dates can be ISO (2026-03-01) or day-first (01.03.2026).
-
-## Tuning the rules
-
-Everything that's inferred comes from editable YAML rules, which you can also edit in the app
-(**Settings**):
-
-- [`config/categories.yaml`](config/categories.yaml): job families (from the title) and location groups.
-- [`config/dimensions.yaml`](config/dimensions.yaml): seniority, industry (by company name and description
-  keywords), company size, work permit and language phrases, work mode, and the skills list.
-
-Settings shows which titles and companies don't match any rule yet, so you know what to add.
-
-## Your data and git
-
-Your applications, skills and settings live in `data/tracker.db`, which is in `.gitignore`. The repo only
-ships fictional sample data. To keep the database elsewhere, set `JOBTRACKER_DB=/path/to/tracker.db`.
-Databases from older versions are upgraded automatically.
-
-## How metrics are defined
+## Metrics
 
 | Metric | Definition |
 |---|---|
-| Any reply | Applications with any reply, including rejections ÷ applications |
-| Positive response | Reached Screening or later (even if rejected afterwards) ÷ applications |
-| Interview rate | Reached Interview or later ÷ applications |
-| Adjusted rate | (successes + 10 × your average) ÷ (applications + 10) |
+| Application → response | Any reply, including rejections |
+| Application → first interview | Reached Interview or later, even if rejected afterwards |
+| First interview → later round | Of applications with an interview, share that reached a final round or offer |
+| Interview → offer | Of applications with an interview, share that got an offer |
+| Median time to response | Days from applying to the first recorded reply (needs stages recorded with their real date) |
+| Adjusted rate (scorecard) | (successes + 10 × your average) ÷ (applications + 10) |
 | 95% range | Wilson score interval |
-| Days to response | Days from applying to the first logged stage after *Applied* |
-| Skills match | Skills found in the job description that are in your profile ÷ skills found |
 
-## Project layout
+Unanswered applications younger than 21 days are left out of rates, since they haven't had time to get a reply.
+Change this in Settings.
 
-```
-app.py                       entry point and navigation
-jobtracker/
-  storage.py                 SQLite store, migrations, settings
-  categorise.py              job family / location rules
-  dimensions.py              seniority, industry, size, permit, language, skills from title/company/JD
-  importer.py                Excel/CSV import and Excel export
-  analysis.py                enrichment, scorecard, funnel, flow, skills, pace (pure pandas)
-  ui/                        one module per page
-config/                      editable rules
-sample_data/                 fictional data + generator
-tests/                       pytest suite
-```
+## Importing a spreadsheet
+
+The importer finds the header row automatically and recognises common column names: Company, Position/Role,
+Date Applied, Date Posted, Application Status, Final Status, Location/Details, Job Description, Source/Channel,
+Hiring Manager/Contact, Link, Seniority, Industry, Company Size, Work Mode, CV Version, Fit, Salary, Notes.
+Dates can be ISO (2026-03-01) or day-first (01.03.2026). The Excel export can be imported again.
 
 ## Development
 
+```
+jobtracker/
+  api.py            FastAPI app (serves /api and the built interface)
+  service.py        cached, enriched view of the data + shared filters
+  storage.py        SQLite: applications, stage history, reminders, settings
+  analysis.py       enrichment, conversion metrics, scorecard, funnel, flow (pure pandas)
+  notifications.py  today's priorities
+  dimensions.py     seniority / industry / permit / language / skills inference
+  categorise.py     job family / location rules
+  importer.py       Excel/CSV import and export
+  web/              built interface (generated, committed so users don't need Node)
+frontend/           React + TypeScript + Tailwind source
+config/             editable rules
+tests/              pytest suite
+```
+
+Backend tests: `python -m pip install pytest httpx && python -m pytest`
+
+Working on the interface (needs Node 18+):
+
 ```bash
-pip install -r requirements.txt pytest
-pytest
+python -m jobtracker --no-browser      # API on :8501
+cd frontend && npm install && npm run dev   # interface on :5173, proxies /api
+npm run build                          # writes the production build to jobtracker/web
 ```
 
 ## License

@@ -38,6 +38,20 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_id INTEGER REFERENCES applications(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    due_date TEXT NOT NULL,
+    note TEXT,
+    done INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS notification_state (
+    key TEXT PRIMARY KEY,
+    snoozed_until TEXT,
+    dismissed INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS stage_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     application_id INTEGER NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
@@ -161,14 +175,50 @@ class Store:
         with self._conn() as c:
             c.execute(f"UPDATE applications SET {sets} WHERE id = ?", [*fields.values(), app_id])
 
-    def move_stage(self, app_id: int, stage: str, when=None, note: str | None = None) -> None:
-        """Record a new stage for an application and make it the current status."""
+    @staticmethod
+    def _sync_status(c, app_id: int) -> None:
+        """Current status = the stage of the most recent event (by date, then entry order)."""
+        row = c.execute("SELECT stage FROM stage_events WHERE application_id = ? ORDER BY date DESC, id DESC LIMIT 1",
+                        (app_id,)).fetchone()
+        if row:
+            c.execute("UPDATE applications SET status = ? WHERE id = ?", (row["stage"], app_id))
+
+    def move_stage(self, app_id: int, stage: str, when=None, note: str | None = None) -> int:
+        """Record a stage for an application. The latest-dated stage becomes the current status."""
         if stage not in STAGES:
             raise ValueError(f"Unknown stage {stage!r}")
         with self._conn() as c:
-            c.execute("INSERT INTO stage_events (application_id, stage, date, note) VALUES (?, ?, ?, ?)",
-                      (app_id, stage, _iso(when), note))
-            c.execute("UPDATE applications SET status = ? WHERE id = ?", (stage, app_id))
+            cur = c.execute("INSERT INTO stage_events (application_id, stage, date, note) VALUES (?, ?, ?, ?)",
+                            (app_id, stage, _iso(when), note))
+            self._sync_status(c, app_id)
+            return cur.lastrowid
+
+    def update_event(self, event_id: int, stage: str | None = None, when=None, note: str | None = None) -> None:
+        with self._conn() as c:
+            row = c.execute("SELECT application_id FROM stage_events WHERE id = ?", (event_id,)).fetchone()
+            if not row:
+                raise KeyError(event_id)
+            if stage is not None:
+                if stage not in STAGES:
+                    raise ValueError(f"Unknown stage {stage!r}")
+                c.execute("UPDATE stage_events SET stage = ? WHERE id = ?", (stage, event_id))
+            if when is not None:
+                c.execute("UPDATE stage_events SET date = ? WHERE id = ?", (_iso(when), event_id))
+            if note is not None:
+                c.execute("UPDATE stage_events SET note = ? WHERE id = ?", (note or None, event_id))
+            self._sync_status(c, row["application_id"])
+
+    def delete_event(self, event_id: int) -> None:
+        with self._conn() as c:
+            row = c.execute("SELECT application_id FROM stage_events WHERE id = ?", (event_id,)).fetchone()
+            if not row:
+                raise KeyError(event_id)
+            n = c.execute("SELECT COUNT(*) FROM stage_events WHERE application_id = ?",
+                          (row["application_id"],)).fetchone()[0]
+            if n <= 1:
+                raise ValueError("An application needs at least one stage.")
+            c.execute("DELETE FROM stage_events WHERE id = ?", (event_id,))
+            self._sync_status(c, row["application_id"])
 
     def delete_application(self, app_id: int) -> None:
         with self._conn() as c:
@@ -176,6 +226,8 @@ class Store:
 
     def clear(self) -> None:
         with self._conn() as c:
+            c.execute("DELETE FROM reminders")
+            c.execute("DELETE FROM notification_state")
             c.execute("DELETE FROM stage_events")
             c.execute("DELETE FROM applications")
 
@@ -214,3 +266,49 @@ class Store:
         with self._conn() as c:
             c.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
                       "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, json.dumps(value)))
+
+    # ---- reminders ----------------------------------------------------
+    def reminders(self, include_done: bool = False) -> pd.DataFrame:
+        q = ("SELECT r.*, a.company, a.position FROM reminders r LEFT JOIN applications a ON a.id = r.application_id"
+             + ("" if include_done else " WHERE r.done = 0") + " ORDER BY r.due_date, r.id")
+        with self._conn() as c:
+            df = pd.read_sql_query(q, c)
+        df["due_date"] = pd.to_datetime(df["due_date"])
+        return df
+
+    def add_reminder(self, title: str, due_date, application_id: int | None = None, note: str | None = None) -> int:
+        with self._conn() as c:
+            cur = c.execute("INSERT INTO reminders (application_id, title, due_date, note, done, created_at) "
+                            "VALUES (?, ?, ?, ?, 0, ?)",
+                            (application_id, title.strip(), _iso(due_date), _clean(note),
+                             datetime.now().isoformat(timespec="seconds")))
+            return cur.lastrowid
+
+    def update_reminder(self, reminder_id: int, **fields) -> None:
+        allowed = {"title", "due_date", "note", "done", "application_id"}
+        fields = {k: v for k, v in fields.items() if k in allowed}
+        if "due_date" in fields:
+            fields["due_date"] = _iso(fields["due_date"])
+        if "done" in fields:
+            fields["done"] = int(bool(fields["done"]))
+        if not fields:
+            return
+        with self._conn() as c:
+            c.execute(f"UPDATE reminders SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?",
+                      [*fields.values(), reminder_id])
+
+    def delete_reminder(self, reminder_id: int) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+
+    # ---- notification state ------------------------------------------
+    def notification_state(self) -> dict[str, dict]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM notification_state").fetchall()
+        return {r["key"]: {"snoozed_until": r["snoozed_until"], "dismissed": bool(r["dismissed"])} for r in rows}
+
+    def snooze_notification(self, key: str, until=None, dismiss: bool = False) -> None:
+        with self._conn() as c:
+            c.execute("INSERT INTO notification_state (key, snoozed_until, dismissed) VALUES (?, ?, ?) "
+                      "ON CONFLICT(key) DO UPDATE SET snoozed_until = excluded.snoozed_until, "
+                      "dismissed = excluded.dismissed", (key, _iso_or_none(until), int(dismiss)))

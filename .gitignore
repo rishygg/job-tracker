@@ -10,3 +10,5 @@ __pycache__/
 .pytest_cache/
 .streamlit/secrets.toml
 .DS_Store
+node_modules/
+frontend/node_modules/

@@ -1,43 +1,170 @@
-# Keyword rules used to auto-categorise applications.
-# Rules are checked top to bottom; the first match wins.
+# Job families (from the job title) and location groups (from the location).
+# Rules are checked top to bottom and the FIRST match wins, so specific families come before
+# broad ones (e.g. "Clinical data manager" hits Clinical operations before Data analysis).
 # Keywords are case-insensitive and match whole words or phrases.
-# You can override the category of any single application in the app.
+# Seniority (intern, junior, senior, ...) is a separate dimension, see dimensions.yaml.
 
 role_areas:
+  # --- Not a specific role -------------------------------------------------------------------
   - name: Open / speculative application
-    keywords: [open application, spontaneous application, initiative application, talent pool,
-               cold email, unsolicited]
+    keywords: [open application, spontaneous application, initiative application, initiativbewerbung,
+               talent pool, talent community, cold email, unsolicited, general application]
+
+  # --- Life sciences & healthcare ------------------------------------------------------------
   - name: Clinical operations
-    keywords: [clinical trial, cra, assistant cra, clinical research, clinical site, clinical study,
-               clinical project, clinical supply, clinical data, site coordinator, study manager,
-               study coordinator, clinical operations, data management, expanded access,
-               clinical programmer, clinical solutions]
-  - name: Data science / AI
-    keywords: [data scientist, data science, data analyst, data engineer, machine learning, ml,
-               ai, artificial intelligence, analytics, bioinformatics, bioinformatician,
-               biostatistician, statistical programmer, quantitative, data visualisation,
-               data visualization, neuroai, informaticist, informatics, data officer, data expert,
-               data support]
-  - name: Graduate / trainee programme
-    keywords: [graduate, trainee, traineeship, fellowship, fellow, programme, program, academy,
-               apprenticeship, early careers, early talent, future talent, rotational,
-               working student, postgraduate]
-  - name: Medical / regulatory / safety
-    keywords: [medical affairs, medical writer, medical writing, regulatory, pharmacovigilance,
-               safety, vigilance, quality assurance, qa, qc, quality, epidemiology, epidemiologist,
-               editor, labelling, cmc, submission, clinical affairs, medical coordinator,
-               medical education]
-  - name: Commercial / marketing
-    keywords: [marketing, brand, sales, commercial, product manager, account manager,
-               account executive, business development, key account, market access, hcp, crm,
-               customer success, communications, sdr, commex]
-  - name: Consulting / business analysis
-    keywords: [consultant, consulting, business analyst, strategy, analyst, project manager,
-               project coordinator, project assistant, portfolio, procurement, supply chain, operations,
-               market intelligence, associate]
-  - name: Research / academia
-    keywords: [research associate, research assistant, researcher, scientist, phd, postdoc,
-               scientifique, research]
+    keywords: [clinical trial, clinical trials, cra, assistant cra, clinical research associate,
+               clinical research coordinator, clinical site, site coordinator, site start up, site start-up,
+               clinical study, study manager, study coordinator, study start-up, clinical project,
+               clinical operations, clinical supply, clinical data, clinical data manager, data management,
+               clinical programmer, edc, ctms, tmf, expanded access, clinical solutions, clinical support,
+               clinical scientist, clinical evaluation, clinical affairs, feasibility, trial manager]
+  - name: Pharmacovigilance / drug safety
+    keywords: [pharmacovigilance, drug safety, patient safety, safety surveillance, vigilance,
+               safety scientist, aggregate reports, signal detection, case processing, materiovigilance]
+  - name: Regulatory affairs
+    keywords: [regulatory, regulatory affairs, regulatory submissions, submission, submissions,
+               labelling, labeling, registration, cmc regulatory, regulatory operations, regulatory intelligence]
+  - name: Medical affairs
+    keywords: [medical affairs, medical science liaison, msl, medical advisor, medical manager, medical director,
+               medical information, medical education, medical coordinator, medical lead, medical expert,
+               scientific affairs, kol, medical excellence]
+  - name: Medical / scientific writing & publishing
+    keywords: [medical writer, medical writing, scientific writer, science writer, scientific editor,
+               assistant editor, managing editor, editor, editorial, publication, publications,
+               scientific communication, content writer, technical writer, copywriter]
+  - name: Quality & compliance (GxP)
+    keywords: [quality assurance, quality control, qa, qc, gmp, gxp, gcp auditor, auditor, validation,
+               qualification, quality risk, quality management, quality engineer, quality specialist,
+               compliant quality, quality approver, deviation, capa, qualified person]
+  - name: Biostatistics & statistical programming
+    keywords: [biostatistician, biostatistics, statistical programmer, statistical programming, statistician,
+               sas programmer, cdisc, sdtm, pharmacometrics, pharmacometrician, model-informed, midd]
+  - name: Bioinformatics & computational biology
+    keywords: [bioinformatics, bioinformatician, computational biologist, computational biology,
+               genomics data, multi-omics, omics, systems biology, cheminformatics]
+  - name: Epidemiology, RWE & health economics
+    keywords: [epidemiologist, epidemiology, real world evidence, real-world evidence, rwe, heor,
+               health economics, outcomes research, health economist, implementation science,
+               population health, public health, patient centered research, patient-centred research]
+  - name: Market access & pricing
+    keywords: [market access, pricing, reimbursement, tariffs, tariff, value access, hta, payer]
+  - name: Lab science & R&D
+    keywords: [laboratory, lab technician, lab assistant, biotechnologist, research technician, assay,
+               cell culture, molecular biologist, biochemist, chemist, immunologist, pharmacologist,
+               toxicologist, preclinical, translational, drug discovery, formulation, analytical scientist,
+               process development, r&d scientist, lab scientist, application specialist,
+               applications specialist, field application]
+  - name: Manufacturing & technical operations
+    keywords: [manufacturing, production technician, production, operator, process engineer, msat,
+               fractionation, downstream, upstream, dsp, usp, cmc, technical operations, plant,
+               maintenance, automation engineer, process analytical]
+  - name: Healthcare & clinical practice
+    keywords: [nurse, nursing, physician, doctor, medical doctor, clinician, therapist, psychologist,
+               psychotherapist, pharmacist, physiotherapist, radiographer, dietitian, clinical engineer,
+               neuropsychologist, occupational therapist, speech therapist, midwife, paramedic]
+
+  # --- Data, AI & technology ----------------------------------------------------------------
+  - name: Machine learning & AI
+    keywords: [machine learning, ml engineer, mlops, ai engineer, applied ai, ai scientist, ai researcher,
+               ai, artificial intelligence, deep learning, computer vision, nlp, llm, generative ai, neuroai,
+               member of technical staff, technical staff, ai science writer]
+  - name: Data science
+    keywords: [data scientist, data science, quantitative researcher, quantiative researcher, quant,
+               decision scientist, research data scientist, applied scientist, data expert]
+  - name: Data engineering
+    keywords: [data engineer, analytics engineer, data platform, etl developer, data architect,
+               data pipeline, database administrator, dba, data integration]
+  - name: Data & business intelligence analysis
+    keywords: [data analyst, business intelligence, bi analyst, bi developer, insight analyst, insights analyst,
+               insights & analytics, analytics, reporting analyst, data visualisation, data visualization,
+               data quality, data officer, data entry, data support, data strategy, people analytics,
+               market intelligence, competitive intelligence, informaticist, informatics]
+  - name: Software engineering
+    keywords: [software engineer, software developer, developer, programmer, frontend, front-end, backend,
+               back-end, full stack, full-stack, devops, site reliability, sre, mobile engineer, ios, android,
+               java engineer, python developer, web developer, embedded, firmware, qa engineer, test engineer,
+               solutions engineer, platform engineer, cloud engineer]
+  - name: IT, infrastructure & support
+    keywords: [it support, it project, it specialist, system administrator, systems administrator, sysadmin,
+               network engineer, helpdesk, service desk, it analyst, it consultant, erp, sap consultant,
+               crm administrator, salesforce administrator, systems support]
+  - name: Cybersecurity
+    keywords: [security engineer, cybersecurity, cyber security, information security, soc analyst,
+               penetration tester, security analyst, iam]
+  - name: Product management
+    keywords: [product owner, product manager, technical product manager, group product manager,
+               product lead, product analyst, product operations]
+  - name: UX, UI & design
+    keywords: [ux, ui, user experience, user research, ux researcher, product designer, graphic designer,
+               visual designer, interaction designer, designer, design]
+
+  # --- Business functions -------------------------------------------------------------------
+  - name: Consulting & strategy
+    keywords: [consultant, consulting, strategy, strategic, corporate development, founder's associate,
+               founders associate, chief of staff, transformation, advisory, management trainee strategy,
+               office of the ceo, business strategy, solutions consultant]
+  - name: Business analysis & operations
+    keywords: [business analyst, process analyst, operations analyst, business operations, operations manager,
+               operations specialist, operational specialist, operations, business specialist, business process,
+               category operations, revenue operations, sales operations, commercial operations, revops]
+  - name: Project & programme management
+    keywords: [project manager, project management, program manager, programme manager, project coordinator,
+               project assistant, project support, project officer, pmo, project lead, scrum master,
+               delivery manager, project management analyst]
+  - name: Supply chain, procurement & logistics
+    keywords: [supply chain, procurement, purchasing, buyer, sourcing, logistics, demand planner, planning,
+               inventory, warehouse, category manager, global supply, supply]
+  - name: Marketing & brand
+    keywords: [marketing, brand, brand manager, product marketing, digital marketing, performance marketing,
+               growth marketing, content marketing, crm, seo, sem, social media, campaign, marketing coordinator,
+               hcp marketing, commex, customer marketing, media associate]
+  - name: Sales & business development
+    keywords: [sales, account executive, account manager, key account, business development, bdr, sdr,
+               sales representative, territory manager, inside sales, partnerships, commercial, area manager,
+               sales engineer, proposal specialist, proposals]
+  - name: Customer success & service
+    keywords: [customer success, customer service, customer support, client services, client success,
+               support specialist, customer experience, account coordinator]
+  - name: Communications & public relations
+    keywords: [communications, communication, public relations, pr, corporate communications, internal
+               communications, press, spokesperson, outreach, community manager, engagement]
+  - name: Finance, accounting & audit
+    keywords: [finance, financial analyst, accountant, accounting, controller, controlling, audit, auditor,
+               tax, treasury, fp&a, revenue analyst, payroll, bookkeeper, cfo]
+  - name: Banking, investment & insurance
+    keywords: [investment, investment banking, banking, banker, wealth management, asset management,
+               private equity, venture capital, portfolio manager, portfolio analyst, equity research, trader,
+               corporate actions, underwriter, actuary, actuarial, risk analyst, credit analyst]
+  - name: HR, talent & recruitment
+    keywords: [recruiter, recruitment, talent acquisition, talent, human resources, hr, people partner,
+               people and business, people & culture, hr business partner, learning and development, l&d,
+               compensation, benefits]
+  - name: Legal & compliance
+    keywords: [legal, lawyer, attorney, paralegal, counsel, compliance, contracts, intellectual property,
+               patent, data protection, privacy]
+  - name: Education, training & learning
+    keywords: [teacher, teaching, tutor, lecturer, professor, instructor, trainer, training, education,
+               educational, curriculum, learning designer, e-learning, knowledge assistant, academy]
+  - name: Policy, public sector & NGO
+    keywords: [policy, public affairs, government affairs, public sector, government, ngo, humanitarian,
+               programme officer, program officer, advocacy, international development, fellowship global]
+  - name: Sustainability & ESG
+    keywords: [sustainability, esg, climate, environmental, impact, carbon, circular economy]
+  - name: Administration & executive support
+    keywords: [executive assistant, personal assistant, administrative, administrator, office manager,
+               secretary, receptionist, office assistant, team assistant, coordinator assistant]
+
+  # --- Academic research --------------------------------------------------------------------
+  - name: Academic research
+    keywords: [phd, doctoral, postdoc, postdoctoral, research assistant, research associate, researcher,
+               research fellow, research scientist, scientist, scientific collaborator, adjoint scientifique, adjoint-e scientifique,
+               wissenschaftlicher mitarbeiter, research, scientifique]
+
+  # --- Programmes without a stated function (checked last) ----------------------------------
+  - name: Graduate / rotational programme (general)
+    keywords: [graduate, graduate program, graduate programme, trainee, traineeship, rotational, programme,
+               program, early careers, early talent, future talent, apprenticeship, seedz, spark,
+               career starter, working student, internship, intern]
 
 # Fallback when nothing matches.
 default_role_area: Other
@@ -45,22 +172,31 @@ default_role_area: Other
 # Location keywords -> region. First match wins.
 regions:
   - name: Switzerland
-    keywords: [switzerland, swiss, zurich, zürich, basel, geneva, genève, zug, baar, bern, lausanne,
-               lugano, schaffhausen, allschwil, nyon, visp, zermatt, winterthur, st. gallen,
-               hinwil, cham, gruyere, vaud, ticino, schlieren, aargau, luzern, lucerne,
-               fribourg, neuchâtel, neuchatel, dübendorf, rotkreuz]
+    keywords: [switzerland, swiss, schweiz, suisse, svizzera, zurich, zürich, basel, geneva, genève, geneve,
+               zug, baar, bern, lausanne, lugano, schaffhausen, allschwil, nyon, visp, zermatt, winterthur,
+               st. gallen, hinwil, cham, gruyere, vaud, ticino, schlieren, aargau, luzern, lucerne, fribourg,
+               neuchâtel, neuchatel, dübendorf, rotkreuz, kaiseraugst, stein, rheinfelden, pratteln, risch,
+               rapperswil, wädenbswil, wädenswil, thun, sion, valais, biel, solothurn, chur, burgdorf]
   - name: United Kingdom
-    keywords: [united kingdom, uk, england, scotland, london, maidenhead, chester, cambridge,
-               oxford, manchester, edinburgh, leatherhead, stevenage, reading]
+    keywords: [united kingdom, uk, england, scotland, wales, london, maidenhead, chester, cambridge, oxford,
+               manchester, edinburgh, glasgow, leatherhead, stevenage, reading, slough, brentford, macclesfield,
+               bristol, leeds, birmingham, berkshire]
   - name: Germany
-    keywords: [germany, deutschland, munich, münchen, berlin, hamburg, kassel, ingelheim,
-               darmstadt, frankfurt, leverkusen, cologne, köln, mainz]
+    keywords: [germany, deutschland, munich, münchen, berlin, hamburg, kassel, ingelheim, darmstadt, frankfurt,
+               leverkusen, cologne, köln, mainz, heidelberg, mannheim, stuttgart, düsseldorf, dusseldorf,
+               freiburg, tübingen, biberach, penzberg, marburg]
   - name: Other Europe
-    keywords: [europe, france, paris, lyon, italy, milan, lombardy, rome, spain, madrid, barcelona,
-               portugal, lisbon, netherlands, amsterdam, belgium, brussels, ireland, dublin,
-               austria, vienna, innsbruck, fuschl, denmark, copenhagen, billund, sweden, stockholm,
-               poland, warsaw, czech, prague, hungary, budapest, marcy]
+    keywords: [europe, emea, france, paris, lyon, italy, milan, lombardy, rome, spain, madrid, barcelona,
+               portugal, lisbon, netherlands, amsterdam, leiden, rotterdam, belgium, brussels, ireland, dublin,
+               austria, vienna, innsbruck, fuschl, denmark, copenhagen, billund, sweden, stockholm, norway, oslo,
+               finland, helsinki, poland, warsaw, czech, prague, hungary, budapest, marcy, luxembourg, greece]
+  - name: Asia-Pacific
+    keywords: [singapore, hong kong, china, shanghai, beijing, japan, tokyo, korea, seoul, india, bangalore,
+               australia, sydney, melbourne, apac, asia]
+  - name: North America
+    keywords: [usa, united states, us, new york, boston, san francisco, cambridge ma, california, canada,
+               toronto, montreal, seattle, chicago]
   - name: Remote
-    keywords: [remote, hybrid remote, anywhere]
+    keywords: [remote, hybrid remote, anywhere, work from home]
 
 default_region: Other / unspecified

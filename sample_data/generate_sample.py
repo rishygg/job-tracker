@@ -15,18 +15,18 @@ random.seed(11)
 
 # Fictional companies: name -> (industry, size)
 COMPANIES = {
-    "Alpenwell Pharma": ("Pharma / biotech", "Large (1000+)"),
-    "Rhinebridge Bio": ("Pharma / biotech", "SME (50–999)"),
-    "Nordhaven CRO": ("CRO / clinical services", "Large (1000+)"),
-    "Orchid Clinical": ("CRO / clinical services", "SME (50–999)"),
-    "Kestrel Devices": ("Medtech / diagnostics", "SME (50–999)"),
-    "Quayside Medical": ("Medtech / diagnostics", "Large (1000+)"),
-    "Sundial AI": ("Technology / AI", "Startup (<50)"),
-    "Lakeside Analytics": ("Health tech / digital health", "Startup (<50)"),
-    "Corvina Health": ("Health tech / digital health", "SME (50–999)"),
-    "Bluepeak Consulting": ("Consulting", "Large (1000+)"),
-    "Tessellate Partners": ("Consulting", "SME (50–999)"),
-    "Helix & Hart": ("Publishing / media", "SME (50–999)"),
+    "Alpenwell Pharma": ("Pharma & biotech", "Large (1000+)"),
+    "Rhinebridge Bio": ("Pharma & biotech", "SME (50–999)"),
+    "Nordhaven CRO": ("CRO & clinical services", "Large (1000+)"),
+    "Orchid Clinical": ("CRO & clinical services", "SME (50–999)"),
+    "Kestrel Devices": ("Medtech & medical devices", "SME (50–999)"),
+    "Quayside Medical": ("Medtech & medical devices", "Large (1000+)"),
+    "Sundial AI": ("Technology & software", "Startup (<50)"),
+    "Lakeside Analytics": ("Digital health & health tech", "Startup (<50)"),
+    "Corvina Health": ("Digital health & health tech", "SME (50–999)"),
+    "Bluepeak Consulting": ("Consulting & professional services", "Large (1000+)"),
+    "Tessellate Partners": ("Consulting & professional services", "SME (50–999)"),
+    "Helix & Hart": ("Publishing, media & entertainment", "SME (50–999)"),
 }
 # title -> (base chance of a positive reply, skills mentioned)
 ROLES = {
