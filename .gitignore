@@ -1,4 +1,3 @@
-# Your personal data — never commit
 data/
 *.db
 *.xlsx
