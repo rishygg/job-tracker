@@ -1,0 +1,22 @@
+Jamie Tan
+Address: Phone: Email: LinkedIn: 12 Example Strasse, 8000 Zurich +41 79 123 45 67 jamie.tan@example.com linkedin.com/in/jamietan/ National University of Singapore, University of Dundee (Semester Exchange)
+Nationality Permit Date of birth
+Singaporean Swiss B Student Permit 01.02.1999 Neuroeconomics Group, Department of Economics, University of Zurich
+EDUCATION
+MSc Interdisciplinary Brain Sciences, ETH Zurich and University of Zurich Sep 2024 – Feb 2027
+Relevant modules taken: Molecular Genetics, Laboratory Techniques in Life Sciences, Research and Statistical Methods, Cognitive Psychology, Drug discovery and clinical trials
+BSc Life Sciences and Psychology, National University of Singapore Aug 2018 – Jul 2022
+EXPERIENCE
+Research Assistant, Neuroeconomics Group Mar 2025 – Present
+• Investigated the role of causal knowledge in reward learning using behavioural experiments and computational modelling (Python, PsychoPy, R) Master’s Thesis, Neuroeconomics Group, Department of Economics, University of Zurich
+• Integration of Multimodal Data: Supported the development of workflows integrating transcriptomic, electrophysiological, and morphological data in iPSC-derived neurons.
+Marketing Intern, Vaccines Business Unit, Pharma Co Jan 2023 – Jun 2023
+• Marketing for leading product portfolio, supporting sales team functions, working with medical affairs, content approval, regulatory team
+• Executed 3 creative social media campaigns reaching 40,000 healthcare professionals
+• Tested scripts and template preparation Jan 2018 – Apr 2018 Systems Integration Intern
+Team Member: Behaviour Analytics, Just2GO Jun 2022 - Dec 2023
+• Lead in developing incentive strategies to drive user engagement and increase meaningful uptake of system
+• Develop incentive strategies to drive user engagement and increase meaningful uptake of system
+• Responsible for weekly reporting of usage data to the project lead
+SKILLS
+Python, R, Bash, statistics, MRI, Excel, SQL (learning)

@@ -3,7 +3,8 @@ import { Bell, Check, ExternalLink, FileText, Pencil, Sparkles, Star, Trash2, X 
 import { api, type Dict } from "../api";
 import { useApp } from "../store";
 import { cls, fmtDate, pct, relDays, stageStyle, today } from "../lib";
-import { Drawer, EmptyState, Field, Select, Skeleton, StatusPill, Tabs } from "./ui";
+import { Drawer, Field, Select, Skeleton, StatusPill, Tabs } from "./ui";
+import { FitPanel } from "./Fit";
 
 type Tab = "overview" | "timeline" | "jd" | "reminders" | "fit";
 const DIMS: [string, string][] = [
@@ -104,7 +105,7 @@ export function ApplicationDrawer({ id, onClose }: { id: number | null; onClose:
               { id: "timeline", label: <>Timeline <span className="num text-ink-faint">{app.events.length}</span></> },
               { id: "jd", label: "Job description" },
               { id: "reminders", label: <>Reminders {app.reminders.filter((r: Dict) => !r.done).length > 0 && <span className="num text-alert">{app.reminders.filter((r: Dict) => !r.done).length}</span>}</> },
-              { id: "fit", label: <span className="inline-flex items-center gap-1"><Sparkles size={13} /> CV fit</span> },
+              { id: "fit", label: <span className="inline-flex items-center gap-1"><Sparkles size={13} /> CV fit & documents</span> },
             ]} />
           </div>
           <div className="flex-1 overflow-y-auto scroll-thin px-6 py-5">
@@ -112,13 +113,7 @@ export function ApplicationDrawer({ id, onClose }: { id: number | null; onClose:
             {tab === "timeline" && <Timeline app={app} onChanged={() => { load(); refresh(); }} onAdd={() => setStaging(app.status)} />}
             {tab === "jd" && <JobDescription app={app} onSaved={(a) => { setApp(a); refresh(); }} />}
             {tab === "reminders" && <Reminders app={app} onChanged={() => { load(); refresh(); }} />}
-            {tab === "fit" && (
-              <EmptyState icon={<Sparkles size={20} />} title="CV fit analysis is coming in stage 2">
-                It will use a local Ollama model to compare your CV with this job description: strengths with evidence from
-                your CV, gaps, essential vs. preferred requirements, blockers (language, permit, location) and a
-                recommendation, plus a target CV and cover letter you can borrow from.
-              </EmptyState>
-            )}
+            {tab === "fit" && <FitPanel kind="application" refId={app.id} hasJd={(app.job_description ?? "").trim().length >= 80} />}
           </div>
         </>
       )}

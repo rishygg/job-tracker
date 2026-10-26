@@ -51,6 +51,24 @@ def build(store: Store, df: pd.DataFrame, settings: dict, today: date | None = N
             "reminder_id": int(r.id), "due": due.isoformat(), "actions": ["done", "snooze"],
         })
 
+    # Saved jobs with a deadline in the next 7 days.
+    opp = store.opportunities("saved")
+    for o in opp.dropna(subset=["deadline"]).itertuples():
+        due = o.deadline.date()
+        days = (due - today).days
+        if days < -1 or days > 7:
+            continue
+        key = f"deadline:{o.id}:{due.isoformat()}"
+        if hidden(key):
+            continue
+        items.append({
+            "key": key, "kind": "deadline", "severity": "high" if days <= 2 else "medium",
+            "title": f"Apply to {o.company} before the deadline",
+            "detail": f"{o.position} · " + ("deadline passed yesterday" if days < 0 else "closes today" if days == 0
+                                           else "closes tomorrow" if days == 1 else f"closes in {days} days"),
+            "application_id": None, "opportunity_id": int(o.id), "due": due.isoformat(), "actions": ["open_opportunity", "snooze", "dismiss"],
+        })
+
     if not df.empty:
         ev = store.events()
         # Upcoming interviews (next 14 days) and thank-you notes after recent interviews.
@@ -89,6 +107,21 @@ def build(store: Store, df: pd.DataFrame, settings: dict, today: date | None = N
                 "application_id": int(e.application_id), "due": today.isoformat(), "actions": ["done", "snooze"],
             })
 
+        # Interviews in the last three weeks that aren't in the journal yet.
+        from .career import interviews_to_log
+        for x in interviews_to_log(df, ev, store.rows("interviews"), today):
+            key = f"journal:{x['event_id']}"
+            if hidden(key):
+                continue
+            items.append({
+                "key": key, "kind": "journal", "severity": "low",
+                "title": f"Log your {x['stage'].lower()} with {x['company']}",
+                "detail": f"{x['position']} · {pd.Timestamp(x['date']):%d %b}. Questions, what was hard, feedback: "
+                          "it builds your practice plan.",
+                "application_id": x["application_id"], "due": x["date"], "log_date": x["date"],
+                "actions": ["log_interview", "dismiss"],
+            })
+
         active = df[df["status"].isin(["Applied", "Screening", "Interview", "Final interview"])]
         for r in active.itertuples():
             idle = int(r.days_since_activity)
@@ -118,6 +151,6 @@ def build(store: Store, df: pd.DataFrame, settings: dict, today: date | None = N
                     })
 
     order = {"high": 0, "medium": 1, "low": 2}
-    kind_order = {"interview": 0, "reminder": 1, "thank_you": 2, "follow_up": 3, "ghost": 4}
+    kind_order = {"interview": 0, "deadline": 1, "reminder": 2, "thank_you": 3, "follow_up": 4, "journal": 5, "ghost": 6}
     items.sort(key=lambda i: (order[i["severity"]], kind_order[i["kind"]], i["due"], -i.get("idle", 0)))
     return items

@@ -10,7 +10,8 @@ import Overview from "./pages/Overview";
 import Applications from "./pages/Applications";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
-import { CareerPlaceholder, DiscoverPlaceholder } from "./pages/Placeholders";
+import Career from "./pages/Career";
+import Discover from "./pages/Discover";
 
 function Overlays() {
   const { openAppId, openApp } = useApp();
@@ -30,9 +31,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/applications" element={<Applications />} />
-            <Route path="/discover" element={<DiscoverPlaceholder />} />
+            <Route path="/discover" element={<Discover />} />
             <Route path="/analytics" element={<Analytics />} />
-            <Route path="/career" element={<CareerPlaceholder />} />
+            <Route path="/career" element={<Career />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Overview />} />
           </Routes>

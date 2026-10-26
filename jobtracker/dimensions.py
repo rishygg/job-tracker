@@ -125,7 +125,11 @@ class DimensionInferer:
         if not isinstance(jd, str) or not jd.strip():
             return JDAnalysis()
         text = str(jd)
-        skills = sorted({term for term, _, pat in self.skill_patterns if pat.search(text)})
+        found = {term for term, _, pat in self.skill_patterns if pat.search(text)}
+        # Drop terms contained in a longer match ("clinical trial" when "clinical trials" was found).
+        def inside(t: str, o: str) -> bool:
+            return t != o and re.search(rf"(?<![\w]){re.escape(t.lower())}(?![\w])", o.lower()) is not None
+        skills = sorted(t for t in found if not any(inside(t, o) for o in found))
         years = [int(m.group(1)) for m in YEARS_RE.finditer(text) if int(m.group(1)) <= 20]
         words = re.findall(r"[a-zäöüß]+", text.lower())
         german_share = sum(w in GERMAN_STOPWORDS for w in words) / max(1, len(words))

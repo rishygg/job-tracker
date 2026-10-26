@@ -1,0 +1,22 @@
+Alex Example
+alex@example.com | Zurich
+
+EDUCATION
+MSc Interdisciplinary Brain Sciences, ETH Zurich, 2024-2026
+BSc Life Sciences, National University, 2018-2022
+
+EXPERIENCE
+Research Assistant, Neuroimaging Lab, 2022-2024
+• Processed structural and functional MRI data for a longitudinal cohort of 1,200 participants using Python and FSL.
+• Built automated quality-control pipelines in Python and Bash, cutting manual review time by 40%.
+• Ran statistical analyses in R (mixed-effects models) and presented results at two international conferences.
+Marketing Intern, Vaccines Division, Pharma Co, 2021
+• Coordinated a cross-functional launch campaign with sales and medical teams.
+• Prepared market analyses in Excel for brand planning.
+
+SKILLS
+Python, R, Bash, statistics, MRI, fMRI, Git, Excel
+GCP certification (CITI)
+
+LANGUAGES
+English (native), German (B1)

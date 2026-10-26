@@ -26,6 +26,17 @@ DEFAULT_SETTINGS = {
     "ghost_after": 42,
     "too_new_days": 21,
     "name": "",
+    # CV and profile used for fit analysis (stored only in the local database).
+    "cv_text": "",
+    "cv_filename": "",
+    "profile": {"languages": [], "permits": {}, "years_experience": None, "degree": "", "locations": [],
+                "relocate": False},
+    # Local AI (Ollama)
+    "ai_engine": "auto",          # auto | ollama | keywords
+    "ollama_url": "http://localhost:11434",
+    "ollama_model": "",
+    # How you write, used by the builders' advice and the chatbot brief.
+    "writing": {"spelling": "", "tone": "", "avoid": "", "samples": ""},
 }
 
 

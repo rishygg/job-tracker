@@ -3,13 +3,14 @@ import { NavLink, useLocation } from "react-router-dom";
 import { BarChart3, Briefcase, Compass, GraduationCap, Home, Plus, Settings } from "lucide-react";
 import { useApi, useApp } from "../store";
 import { cls } from "../lib";
+import { AiActivity } from "./AiJob";
 
 const NAV = [
   { to: "/", label: "Overview", icon: Home, end: true },
   { to: "/applications", label: "Applications", icon: Briefcase },
-  { to: "/discover", label: "Discover", icon: Compass, soon: true },
+  { to: "/discover", label: "Discover", icon: Compass },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/career", label: "Career development", icon: GraduationCap, soon: true },
+  { to: "/career", label: "Career development", icon: GraduationCap },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -63,7 +64,9 @@ export function Layout({ children }: { children: ReactNode }) {
         <nav className="flex lg:flex-col gap-0.5 px-3 overflow-x-auto lg:overflow-visible items-center lg:items-stretch">
           {NAV.map(link)}
         </nav>
-        <div className="lg:mt-auto px-3 lg:pb-4 flex lg:flex-col items-center lg:items-stretch">
+        <div className="lg:mt-auto" />
+        <AiActivity />
+        <div className="px-3 lg:pb-4 flex lg:flex-col items-center lg:items-stretch">
           {link({ to: "/settings", label: "Settings", icon: Settings })}
         </div>
       </aside>

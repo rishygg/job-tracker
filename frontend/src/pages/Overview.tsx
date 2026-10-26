@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowRight, Bell, CalendarClock, CheckCircle2, Clock, Ghost, Lightbulb, Mail, MessageSquareHeart, Plus, TrendingUp } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight, Bell, CalendarClock, CalendarX2, CheckCircle2, Clock, Ghost, Lightbulb, Mail, MessageSquareHeart, Plus, TrendingUp, NotebookPen } from "lucide-react";
 import { api, type Dict } from "../api";
 import { useApi, useApp } from "../store";
 import { cls, fmtDate, pct, relDays, STAGE_STYLE } from "../lib";
@@ -8,13 +8,15 @@ import { EmptyState, Field, Modal, Select, Skeleton, StatusPill } from "../compo
 
 const KIND: Record<string, { icon: typeof Bell; color: string; label: string }> = {
   interview: { icon: CalendarClock, color: "#d97f06", label: "Interview" },
+  deadline: { icon: CalendarX2, color: "#c2410c", label: "Deadline" },
   reminder: { icon: Bell, color: "#3d6fd6", label: "Reminder" },
   thank_you: { icon: MessageSquareHeart, color: "#7f5bd1", label: "After interview" },
   follow_up: { icon: Mail, color: "#0e7a5c", label: "Follow up" },
   ghost: { icon: Ghost, color: "#8f97a6", label: "No reply" },
+  journal: { icon: NotebookPen, color: "#3d6fd6", label: "Journal" },
 };
 const ACTION_LABEL: Record<string, string> = {
-  done: "Done", snooze: "Snooze 7d", dismiss: "Dismiss", mark_ghosted: "Mark ghosted", followed_up: "Followed up", open: "Open",
+  done: "Done", open_opportunity: "Open", snooze: "Snooze 7d", dismiss: "Dismiss", mark_ghosted: "Mark ghosted", followed_up: "Followed up", open: "Open", log_interview: "Log it",
 };
 
 function greeting() {
@@ -27,9 +29,12 @@ export default function Overview() {
   const { data, loading } = useApi<Dict>(`/api/overview${filterQuery()}`);
   const [remOpen, setRemOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const navigate = useNavigate();
 
   async function act(item: Dict, action: string) {
     if (action === "open") { openApp(item.application_id); return; }
+    if (action === "open_opportunity") { navigate(`/discover?open=${item.opportunity_id}`); return; }
+    if (action === "log_interview") { navigate(`/career?log=${item.application_id}&date=${item.log_date}`); return; }
     try { await api.post("/api/priorities/act", { key: item.key, action, days: 7 }); refresh(); toast(ACTION_LABEL[action] ?? "Done"); }
     catch (e: any) { toast(e.message, "error"); }
   }
@@ -86,7 +91,7 @@ export default function Overview() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <button className="text-left font-medium text-[13.5px] hover:underline decoration-line-strong underline-offset-2"
-                          onClick={() => item.application_id && openApp(item.application_id)}>{item.title}</button>
+                          onClick={() => item.application_id ? openApp(item.application_id) : item.opportunity_id && navigate(`/discover?open=${item.opportunity_id}`)}>{item.title}</button>
                         <div className="text-[12.5px] text-ink-muted">{item.detail}</div>
                       </div>
                       {item.severity === "high" && <span className="chip h-5 text-[10.5px] bg-alert-soft text-alert border-[#f6d3bd] mt-1">Urgent</span>}

@@ -56,10 +56,10 @@ export function Drawer({ open, onClose, children }: { open: boolean; onClose: ()
 export function Tabs<T extends string>({ tabs, value, onChange }:
   { tabs: { id: T; label: ReactNode }[]; value: T; onChange: (v: T) => void }) {
   return (
-    <div className="flex gap-1 border-b border-line" role="tablist">
+    <div className="flex gap-1 border-b border-line overflow-x-auto overflow-y-hidden" role="tablist">
       {tabs.map((t) => (
         <button key={t.id} role="tab" aria-selected={value === t.id} onClick={() => onChange(t.id)}
-          className={cls("px-3 py-2.5 text-[13px] font-medium -mb-px border-b-2 transition-colors",
+          className={cls("px-3 py-2.5 text-[13px] font-medium -mb-px border-b-2 transition-colors whitespace-nowrap shrink-0",
             value === t.id ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink")}>
           {t.label}
         </button>

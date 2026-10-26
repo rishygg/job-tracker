@@ -1,0 +1,18 @@
+Digital & Data Analyst (12 months)
+About us
+Exampla Pharma is a leading European specialist pharmaceutical company. Exampla Pharma has been bringing medicines to patients for over 100 years.
+In this role, you will turn operational data into actionable insight and help develop digital, automation and AI-enabled solutions. Your work will strengthen decision-making, efficiency and continuous improvement within a regulated manufacturing environment.
+Your responsibilities
+- Build and maintain dashboards and reports for manufacturing performance (OEE, deviations, batch release)
+- Support feasibility studies and recommend appropriate technical developments.
+- Drive continuous improvement projects using data analysis and process improvement methods
+- Develop automation solutions with Power BI, Power Automate and Python
+You will bring:
+- Experience applying data, reporting, process improvement and digital technologies in a regulated manufacturing, pharmaceutical, life sciences or operational environment
+- Strong business intelligence, data analysis and performance-improvement capabilities
+- Experience with Power BI and SQL
+- Knowledge of GMP is an advantage
+- Fluent English; German is a plus
+Our values
+Drive: Take ownership, focus on the priorities that matter and deliver meaningful operational improvements
+This is a 12 Months Fixed Term Contract role.
