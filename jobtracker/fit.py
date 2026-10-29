@@ -1,13 +1,9 @@
-"""CV-vs-job fit analysis.
+"""Profile-vs-job fit, from rules only (no AI).
 
-Two engines produce the same result shape:
-  * "keywords": deterministic rules (always available, no AI) - extracts requirements from the job
-    description, splits them into essential vs preferred, and finds the closest line in your CV.
-  * "ollama": a local language model does the reading; its output is then checked against your CV so
-    it can't invent evidence, and combined with the same rule-based blockers.
-
-The score and recommendation are always computed here from the requirement statuses and blockers, so
-both engines are judged the same way.
+Requirements are extracted from the job description (page clutter, benefits and company text removed), split
+into essential and preferred, and each is matched to the closest line in your profile entries. Eligibility
+blockers (language, permits, degree, years) come from your Me page. Every verdict can be traced to a line.
+German postings get the eligibility check only; rank those with your chat assistant.
 """
 
 from __future__ import annotations
@@ -18,7 +14,6 @@ from dataclasses import dataclass, field
 
 from .cvtext import chunks as cv_chunks
 from .dimensions import DimensionInferer
-from .llm import Ollama
 
 ESSENTIAL_HEADERS = [
     "requirements", "qualifications", "what you bring", "what we're looking for", "what we are looking for",
@@ -54,6 +49,19 @@ BULLET = re.compile(r"^\s*(?:[•▪◦●○■□➢►▶–—\-*·✓✔]|\
 JUNK = re.compile(r"\b(fixed[- ]term|contract role|permanent role|salary|compensation|benefits|bonus scheme|we offer|"
                   r"how to apply|apply now|equal opportunit\w*|diversity|closing date|start date|full[- ]time|part[- ]time|"
                   r"\d+\s*%\s*(?:workload|pensum)|pensum|hybrid working|home office)\b", re.I)
+# Headings that start a section about the employer, benefits or process: the requirements section is over.
+SECTION_END = re.compile(
+    r"^\s*(some reasons to join|reasons to join|why (join|work (with|for|at))|join us|we offer|what we offer|our offer|"
+    r"what('s| is) in it for you|benefits|perks|our (commitments?|promise|values|culture|benefits|mission|story)|"
+    r"about (us|the company|the team)|life at |working at |learn more|how to apply|application process|next steps|"
+    r"equal opportunit|diversity|wir bieten|unser angebot|(deine|ihre) vorteile|über uns|nous offrons|"
+    r"pourquoi nous rejoindre|the (company|employer)|who we are|our team|meet the team)", re.I)
+SOFT = re.compile(
+    r"\b(team ?spirit|teamwork|team player|collaborat\w*|communication|interpersonal|proactiv\w*|autonom\w*|"
+    r"self[- ]starter|self[- ]motivated|motivated|curious|curiosity|detail[- ]oriented|attention to detail|organi[sz]ed|"
+    r"flexib\w*|adaptab\w*|influencing|negotiation|results?[- ]oriented|passion\w*|positive attitude|can-do|"
+    r"independently|work autonomously|problem[- ]solving|eager to learn|willingness to learn|hands-on mentality|"
+    r"teamfähig\w*|kommunikationsstark|selbstständig\w*|eigeninitiative|belastbar\w*|zuverlässig\w*)\b", re.I)
 ELIGIBILITY = re.compile(r"\b(work permit|right to work|eligible to work|visa|sponsorship|eu/efta|eu or efta|"
                          r"arbeitsbewilligung|is based in|located in|based at|relocat\w*|on-site in|onsite in)\b", re.I)
 
@@ -118,16 +126,41 @@ def _header_kind(line: str) -> str | None:
     return None
 
 
-def extract_requirements(jd: str, limit: int = 22) -> list[dict]:
-    """Requirement lines from a job description, each marked essential or preferred."""
-    lines = [ln for ln in (jd or "").replace("\r", "").split("\n")]
+def _is_soft(text: str) -> bool:
+    """Mostly about attitude or soft skills: keywords can't verify it from a CV."""
+    if not SOFT.search(text):
+        return False
+    hard = _terms(SOFT.sub(" ", text)) - {"abil", "skill", "demonstrat", "excellent", "exceptional", "proven", "high",
+                                          "level", "strong", "good", "very", "work", "part", "able", "and", "both"}
+    return len(hard) <= 3
+
+
+def _near_dup(a: set[str], b: set[str]) -> bool:
+    if not a or not b:
+        return False
+    return len(a & b) / min(len(a), len(b)) >= 0.7
+
+
+def extract_requirements(jd: str, limit: int = 24) -> list[dict]:
+    """Requirement lines from a job description, each marked essential or preferred (and soft if it's about attitude)."""
+    from .posting import clean
+    text_all, _ = clean(jd or "")
+    lines = text_all.split("\n")
     reqs: list[dict] = []
     section: str | None = None
     saw_section = False
     for raw in lines:
         if not raw.strip():
             continue
+        stripped = BULLET.sub("", raw).strip()
+        if SECTION_END.match(stripped) and len(stripped) <= 70:
+            section, saw_section = "other", True
+            continue
         kind = _header_kind(raw)
+        if not kind:  # "Requirements: Degree level…; …" - a heading with content on the same line
+            m = re.match(r"^([\w' &/-]{3,40}):\s+(\S.+)$", stripped)
+            if m and (k2 := _header_kind(m.group(1) + ":")):
+                kind, raw = k2, m.group(1) + ": " + m.group(2)
         if kind:
             section, saw_section = kind, True
             # "Requirements: Python, SQL" - header with content on the same line.
@@ -136,41 +169,58 @@ def extract_requirements(jd: str, limit: int = 22) -> list[dict]:
                 continue
             raw = rest
         text = BULLET.sub("", raw).strip()
-        for sent in re.split(r"(?<=[.;])\s+(?=[A-Z])", text):
-            s = sent.strip(" .;")
-            if not (12 <= len(s) <= 320):
-                continue
-            pref, ess = bool(PREFERRED_CUES.search(s)), bool(ESSENTIAL_CUES.search(s))
-            if section == "other":
-                continue
-            if section in ("essential", "preferred"):
-                kind = "preferred" if (section == "preferred" or pref) else "essential"
-            elif not saw_section or section is None:
-                if not (pref or ess):
+        # A summary line listing several requirements separated by semicolons: treat each part separately.
+        summary = text.count(";") >= 2
+        parts = [p for p in re.split(r";\s*", text) if p.strip()] if summary else [text]
+        for part in parts:
+            for sent in re.split(r"(?<=[.;])\s+(?=[A-Z])", part):
+                s = sent.strip(" .;")
+                if not (12 <= len(s) <= 320):
                     continue
-                kind = "preferred" if pref else "essential"
-            else:
-                continue
-            if ELIGIBILITY.search(s) or JUNK.search(s):
-                continue  # permits/location are blockers; contract and pay lines aren't requirements
-            if s.rstrip().endswith(":"):
-                continue  # an unrecognised sub-heading ("Technical tools mentioned:")
-            reqs.append({"text": s, "type": kind})
-    # De-duplicate, keep order.
-    seen, out = set(), []
+                pref, ess = bool(PREFERRED_CUES.search(s)), bool(ESSENTIAL_CUES.search(s))
+                if section == "other":
+                    continue
+                if section in ("essential", "preferred"):
+                    kind = "preferred" if (section == "preferred" or pref) else "essential"
+                elif not saw_section or section is None:
+                    if not (pref or ess):
+                        continue
+                    kind = "preferred" if pref else "essential"
+                else:
+                    continue
+                if ELIGIBILITY.search(s) or JUNK.search(s):
+                    continue  # permits/location are blockers; contract and pay lines aren't requirements
+                if s.rstrip().endswith(":"):
+                    continue  # an unrecognised sub-heading ("Technical tools mentioned:")
+                reqs.append({"text": s[0].upper() + s[1:], "type": kind, "soft": _is_soft(s), "summary": summary})
+    # De-duplicate (also near-duplicates, e.g. a site summary repeating the bullets), keep the fuller wording.
+    out: list[dict] = []
     for r in reqs:
-        k = _norm(r["text"])
-        if k not in seen:
-            seen.add(k)
+        t = _terms(r["text"])
+        dup = next((o for o in out if _near_dup(t, _terms(o["text"]))), None)
+        if dup is None:
             out.append(r)
-    return out[:limit]
+        elif dup["summary"] and not r["summary"]:
+            dup.clear()
+            dup.update(r)  # the posting's own bullet beats the summary line that repeats it
+        elif len(r["text"]) > len(dup["text"]) and r["type"] == dup["type"] and r["summary"] == dup["summary"]:
+            dup.update(r)
+    # Final pass: drop a short line that another, fuller requirement already covers ("Microsoft Office").
+    terms = [_terms(r["text"]) for r in out]
+    keep = [r for i, r in enumerate(out)
+            if not any(j != i and len(out[j]["text"]) > len(r["text"]) and _near_dup(terms[i], terms[j]) for j in range(len(out)))]
+    for r in keep:
+        r.pop("summary", None)
+    return keep[:limit]
 
 
 # --------------------------------------------------------------------------- profile checks
 YEARS_RE = re.compile(r"(\d{1,2})\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?\+?\s*(?:years?|yrs)", re.I)
 PHD_RE = re.compile(r"\b(ph\.?\s?d|doctorate|doctoral degree)\b", re.I)
 MASTER_RE = re.compile(r"\b(master'?s?|msc|m\.sc|ma\b|mphil|graduate degree)\b", re.I)
-BACHELOR_RE = re.compile(r"\b(bachelor'?s?|bsc|b\.sc|undergraduate degree|university degree)\b", re.I)
+BACHELOR_RE = re.compile(r"\b(bachelor'?s?|bsc|b\.sc|undergraduate degree|university degree|degree level|educated to degree|"
+                         r"degree or equivalent|degree \(or equivalent\)|university education|higher education|"
+                         r"hochschulabschluss|studium)\b", re.I)
 LANG_NAMES = ["german", "french", "italian", "spanish", "english", "dutch", "portuguese", "mandarin", "chinese",
               "japanese", "hindi", "polish", "danish", "swedish", "norwegian"]
 LANG_NEED = re.compile(r"\b(fluent|fluency|native|business[- ]fluent|excellent|proficient|proficiency|c1|c2|"
@@ -367,9 +417,9 @@ def recommend(fit: float | None, block: list[dict], reqs: list[dict]) -> dict:
     if fit >= 0.7 and len(ess_missing) <= 1 and not medium:
         return {"action": "Apply", "why": f"You meet most essential requirements ({fit:.0%} overall)."}
     if fit >= 0.45:
-        reason = medium[0]["detail"] if medium else (f"{len(ess_missing)} essential requirement(s) not shown in your CV." if ess_missing else "Several requirements are only partly covered.")
+        reason = medium[0]["detail"] if medium else (f"{len(ess_missing)} essential requirement(s) not shown in your profile." if ess_missing else "Several requirements are only partly covered.")
         return {"action": "Apply with caveats", "why": f"Reasonable match ({fit:.0%}). {reason}"}
-    return {"action": "Deprioritise", "why": f"Low match ({fit:.0%}): {len(ess_missing)} of {len(ess)} essential requirements aren't covered by your CV."}
+    return {"action": "Deprioritise", "why": f"Low match ({fit:.0%}): {len(ess_missing)} of {len(ess)} essential requirements aren't covered by your profile."}
 
 
 def _summarise(reqs: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -384,10 +434,27 @@ def _summarise(reqs: list[dict]) -> tuple[list[dict], list[dict]]:
 
 
 # --------------------------------------------------------------------------- engines
+GERMAN_NOTE = ("This posting is in German. Keyword rules can't compare German text with an English profile reliably, "
+               "so there's no score. The eligibility checks still apply; rank it with your chat assistant.")
+
+
 def analyse_keywords(cv: str, jd: str, profile: dict, inferer: DimensionInferer, region: str | None = None) -> dict:
+    from .posting import language
+    if language(jd) == "de":
+        block = blockers(jd, profile, inferer, region, [])
+        high = [b for b in block if b["severity"] == "high"]
+        return {"method": "keywords", "model": None, "score": None, "requirements": [], "soft_skills": [], "strengths": [],
+                "gaps": [], "blockers": block, "counts": {"essential": 0, "essential_met": 0, "preferred": 0, "preferred_met": 0},
+                "posting_language": "de", "note": GERMAN_NOTE,
+                "recommendation": {"action": "Deprioritise" if high else "Not scored",
+                                   "why": ("; ".join(b["detail"] for b in high) if high else GERMAN_NOTE)},
+                "summary": None}
     m = Matcher(cv, inferer)
-    reqs = []
+    reqs, soft = [], []
     for r in extract_requirements(jd):
+        if r.get("soft") and not special_check(r["text"], profile):
+            soft.append(r)
+            continue
         special = special_check(r["text"], profile)
         if special:
             reqs.append({**r, **special})
@@ -396,135 +463,9 @@ def analyse_keywords(cv: str, jd: str, profile: dict, inferer: DimensionInferer,
         reqs.append({**r, "status": status_from_score(s), "evidence": piece["text"] if piece and s >= 0.25 else None,
                      "evidence_section": piece["section"] if piece and s >= 0.25 else None, "match": round(s, 2),
                      "evidence_verified": bool(piece and s >= 0.25)})
-    return _finish(reqs, jd, profile, inferer, region, method="keywords", model=None)
-
-
-SYSTEM_FIT = """You are a meticulous career advisor. Compare the candidate's CV with the job description.
-Rules:
-- List the job's requirements (skills, experience, education, languages, eligibility). Mark each "essential" if the
-  posting presents it as required (must, required, minimum, in a requirements section) and "preferred" if it is
-  described as a plus, nice to have, preferred, desirable or ideally.
-- For each requirement give status "met", "partial" or "missing" based ONLY on the CV and profile.
-- "evidence" must be an exact quote copied from the CV (a phrase or bullet) that supports the status, or "" if none.
-  Never invent or paraphrase evidence.
-- Be honest about gaps. Do not assume skills that aren't written in the CV.
-- Keep requirement texts short (under 20 words)."""
-
-FIT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "requirements": {"type": "array", "items": {"type": "object", "properties": {
-            "text": {"type": "string"}, "type": {"type": "string", "enum": ["essential", "preferred"]},
-            "status": {"type": "string", "enum": ["met", "partial", "missing"]},
-            "evidence": {"type": "string"}, "note": {"type": "string"}},
-            "required": ["text", "type", "status", "evidence"]}},
-        "summary": {"type": "string"},
-    },
-    "required": ["requirements", "summary"],
-}
-
-
-def _profile_text(profile: dict) -> str:
-    langs = ", ".join(f"{l.get('language')} {l.get('level')}" for l in profile.get("languages", []) or [] if l.get("language"))
-    permits = "; ".join(f"{k}: {v}" for k, v in (profile.get("permits") or {}).items() if v)
-    return (f"Languages: {langs or 'not given'}\nHighest degree: {profile.get('degree') or 'not given'}\n"
-            f"Years of relevant experience: {profile.get('years_experience', 'not given')}\nWork permits: {permits or 'not given'}")
-
-
-COMPACT_SYSTEM = """You compare a CV with job requirements. Answer ONLY with ids from the lists given.
-For each requirement R#: status "met" (the CV clearly shows it), "partial" (related but weaker) or "missing";
-"type" essential or preferred (keep the given type unless the wording clearly says otherwise);
-"cv" = up to 2 CV line ids C# that prove it ([] if missing). Never guess beyond what the CV says."""
-
-COMPACT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "r": {"type": "array", "items": {"type": "object", "properties": {
-            "id": {"type": "string"}, "status": {"type": "string", "enum": ["met", "partial", "missing"]},
-            "type": {"type": "string", "enum": ["essential", "preferred"]},
-            "cv": {"type": "array", "items": {"type": "string"}}}, "required": ["id", "status", "cv"]}},
-        "summary": {"type": "string"},
-    },
-    "required": ["r", "summary"],
-}
-
-
-def _numbered_cv(m: "Matcher", limit: int = 70) -> tuple[str, dict[str, dict]]:
-    pieces = m.pieces[:limit]
-    ids = {f"C{i + 1}": p for i, p in enumerate(pieces)}
-    return "\n".join(f"{k}: {p['text'][:220]}" for k, p in ids.items()), ids
-
-
-def analyse_llm(cv: str, jd: str, profile: dict, inferer: DimensionInferer, client: Ollama, region: str | None = None) -> dict:
-    """Fast AI analysis: the app extracts and numbers requirements and CV lines; the model only answers
-    with statuses and line ids. Short output = fast, and evidence can only point at real CV lines."""
-    reqs = extract_requirements(jd)
-    if len(reqs) < 3:
-        return analyse_llm_full(cv, jd, profile, inferer, client, region)
-    m = Matcher(cv, inferer)
-    cv_list, cv_ids = _numbered_cv(m)
-    final: list[dict] = []
-    ask: list[tuple[str, dict]] = []
-    for i, r in enumerate(reqs):
-        special = special_check(r["text"], profile)
-        if special:
-            final.append({**r, **special})
-        else:
-            ask.append((f"R{i + 1}", r))
-    raw: dict = {"r": [], "summary": ""}
-    if ask:
-        req_list = "\n".join(f"{rid} [{r['type']}]: {r['text']}" for rid, r in ask)
-        user = f"REQUIREMENTS\n{req_list}\n\nCV LINES\n{cv_list}\n\nAlso give a one-sentence summary of the fit."
-        raw = client.chat_json(COMPACT_SYSTEM, user, COMPACT_SCHEMA, num_predict=60 + 40 * len(ask))
-    answers = {str(x.get("id", "")).strip().upper(): x for x in raw.get("r", [])}
-    for rid, r in ask:
-        a = answers.get(rid)
-        if not a:  # model skipped it: fall back to keyword matching for this one
-            sc, piece = m.best(r["text"])
-            final.append({**r, "status": status_from_score(sc), "evidence": piece["text"] if piece and sc >= 0.25 else None,
-                          "evidence_verified": bool(piece and sc >= 0.25)})
-            continue
-        pieces = [cv_ids[c.strip().upper()] for c in a.get("cv", []) if c.strip().upper() in cv_ids]
-        status = a.get("status") if a.get("status") in ("met", "partial", "missing") else "missing"
-        if status in ("met", "partial") and not pieces:
-            status = "partial" if status == "met" else "missing"
-        final.append({**r, "type": a.get("type") if a.get("type") in ("essential", "preferred") else r["type"],
-                      "status": status, "evidence": pieces[0]["text"] if pieces else None,
-                      "evidence_section": pieces[0]["section"] if pieces else None, "evidence_verified": bool(pieces)})
-    order = {_norm(r["text"]): i for i, r in enumerate(reqs)}
-    final.sort(key=lambda r: order.get(_norm(r["text"]), 99))
-    res = _finish(final, jd, profile, inferer, region, method="ollama", model=client.model)
-    if raw.get("summary"):
-        res["summary"] = raw["summary"]
-    return res
-
-
-def analyse_llm_full(cv: str, jd: str, profile: dict, inferer: DimensionInferer, client: Ollama, region: str | None = None) -> dict:
-    """Slower path for postings without a clear requirements list: the model extracts them itself."""
-    user = (f"CANDIDATE PROFILE\n{_profile_text(profile)}\n\nCANDIDATE CV\n{cv[:9000]}\n\nJOB DESCRIPTION\n{jd[:6000]}\n\n"
-            "Return the requirements and a two-sentence summary of the fit.")
-    raw = client.chat_json(SYSTEM_FIT, user, FIT_SCHEMA, num_predict=1500)
-    m = Matcher(cv, inferer)
-    reqs = []
-    for r in (raw.get("requirements") or [])[:25]:
-        text = str(r.get("text", "")).strip()
-        if not text:
-            continue
-        typ = r.get("type") if r.get("type") in ("essential", "preferred") else "essential"
-        status = r.get("status") if r.get("status") in ("met", "partial", "missing") else "missing"
-        special = special_check(text, profile)
-        if special:
-            reqs.append({"text": text, "type": typ, **special})
-            continue
-        ok, matched = m.verify(r.get("evidence"))
-        item = {"text": text, "type": typ, "status": status, "note": r.get("note") or None,
-                "evidence": matched or (r.get("evidence") or None), "evidence_verified": ok}
-        if status == "met" and not ok:
-            item["status"] = "partial"
-            item["note"] = "The model's evidence couldn't be found in your CV, so this is marked as partial."
-        reqs.append(item)
-    res = _finish(reqs, jd, profile, inferer, region, method="ollama", model=client.model)
-    res["summary"] = raw.get("summary") or res.get("summary")
+    res = _finish(reqs, jd, profile, inferer, region, method="keywords", model=None)
+    res["soft_skills"] = [r["text"] for r in soft]
+    res["posting_language"] = "en"
     return res
 
 
@@ -543,193 +484,3 @@ def _finish(reqs: list[dict], jd: str, profile: dict, inferer: DimensionInferer,
             "counts": {"essential": len(ess), "preferred": len(pref),
                        "essential_met": sum(r["status"] == "met" for r in ess),
                        "preferred_met": sum(r["status"] == "met" for r in pref)}}
-
-
-# --------------------------------------------------------------------------- target CV & cover letter
-SYSTEM_TARGET = """You help a candidate tailor their own CV to one job. Write the strongest HONEST version of their CV
-for this job. Every bullet must be tagged:
-- "backed": a rewording of something in the CV. "source" must be the exact CV text it comes from.
-- "partial": related experience exists in the CV but the bullet stretches it; "source" is the closest CV text and
-  "note" says what the candidate must confirm or add.
-- "gap": something the employer wants that the CV does not show. Phrase it as what the employer wants to see
-  (e.g. "Evidence of leading a cross-functional project"), never as a claim. "source" is "".
-Never fabricate employers, dates, numbers, degrees or achievements. Use the job's vocabulary where truthful."""
-
-TARGET_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "headline": {"type": "string"},
-        "summary": {"type": "string"},
-        "sections": {"type": "array", "items": {"type": "object", "properties": {
-            "title": {"type": "string"},
-            "bullets": {"type": "array", "items": {"type": "object", "properties": {
-                "text": {"type": "string"}, "support": {"type": "string", "enum": ["backed", "partial", "gap"]},
-                "source": {"type": "string"}, "addresses": {"type": "string"}, "note": {"type": "string"}},
-                "required": ["text", "support", "source"]}}},
-            "required": ["title", "bullets"]}},
-        "skills": {"type": "array", "items": {"type": "object", "properties": {
-            "skill": {"type": "string"}, "support": {"type": "string", "enum": ["backed", "gap"]}},
-            "required": ["skill", "support"]}},
-        "advice": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["headline", "summary", "sections", "skills", "advice"],
-}
-
-SYSTEM_LETTER = """Write a concise, specific cover letter (250-350 words) for the candidate, using ONLY facts from
-their CV. Split it into paragraphs. Tag each paragraph "backed" if every claim comes from the CV, or "partial" if it
-needs the candidate to fill in or confirm details (use [square brackets] for placeholders). List the exact CV text
-each paragraph relies on in "sources". Do not invent achievements, numbers or motivations; where motivation is
-needed, leave a [placeholder] for the candidate's own reason."""
-
-LETTER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "greeting": {"type": "string"},
-        "paragraphs": {"type": "array", "items": {"type": "object", "properties": {
-            "text": {"type": "string"}, "support": {"type": "string", "enum": ["backed", "partial"]},
-            "sources": {"type": "array", "items": {"type": "string"}}}, "required": ["text", "support", "sources"]}},
-        "closing": {"type": "string"},
-    },
-    "required": ["greeting", "paragraphs", "closing"],
-}
-
-
-def target_cv_llm(cv: str, jd: str, fit: dict | None, inferer: DimensionInferer, client: Ollama,
-                  position: str = "", company: str = "") -> dict:
-    gaps = "; ".join(g["point"] for g in (fit or {}).get("gaps", [])[:8])
-    user = (f"JOB: {position} at {company}\n\nJOB DESCRIPTION\n{jd[:7000]}\n\nCANDIDATE CV\n{cv[:12000]}\n\n"
-            f"Known gaps: {gaps or 'none listed'}\n\nWrite the target CV.")
-    raw = client.chat_json(SYSTEM_TARGET, user, TARGET_SCHEMA, temperature=0.3)
-    m = Matcher(cv, inferer)
-    for sec in raw.get("sections", []):
-        for b in sec.get("bullets", []):
-            if b.get("support") in ("backed", "partial"):
-                ok, matched = m.verify(b.get("source"))
-                b["source_verified"] = ok
-                if matched:
-                    b["source"] = matched
-                if b["support"] == "backed" and not ok:
-                    b["support"] = "partial"
-                    b["note"] = (b.get("note") or "") + " The source line couldn't be found in your CV; check this before using it."
-            else:
-                b["source"] = ""
-    cv_low = cv.lower()
-    for s in raw.get("skills", []):
-        if s.get("support") == "backed" and s.get("skill", "").lower() not in cv_low:
-            s["support"] = "gap"
-    return {"method": "ollama", "model": client.model, **raw}
-
-
-def cover_letter_llm(cv: str, jd: str, inferer: DimensionInferer, client: Ollama, position: str = "", company: str = "") -> dict:
-    user = f"JOB: {position} at {company}\n\nJOB DESCRIPTION\n{jd[:7000]}\n\nCANDIDATE CV\n{cv[:12000]}"
-    raw = client.chat_json(SYSTEM_LETTER, user, LETTER_SCHEMA, temperature=0.4)
-    m = Matcher(cv, inferer)
-    for p in raw.get("paragraphs", []):
-        checked = [m.verify(s) for s in p.get("sources", [])]
-        p["sources_verified"] = sum(ok for ok, _ in checked)
-        if p.get("support") == "backed" and (not checked or not all(ok for ok, _ in checked)):
-            p["support"] = "partial"
-    return {"method": "ollama", "model": client.model, **raw}
-
-
-def tailoring_guide(cv: str, jd: str, fit: dict, inferer: DimensionInferer) -> dict:
-    """No-AI version of the target CV: which of your lines to lead with, and what's missing."""
-    m = Matcher(cv, inferer)
-    sections = []
-    lead = []
-    for r in fit.get("requirements", []):
-        if r["status"] in ("met", "partial") and r.get("evidence") and not str(r["evidence"]).startswith("Profile:"):
-            lead.append({"text": r["evidence"], "support": "backed" if r["status"] == "met" else "partial",
-                         "source": r["evidence"], "addresses": r["text"],
-                         "note": None if r["status"] == "met" else "Related, but rephrase to match the requirement more directly."})
-    seen, uniq = set(), []
-    for b in lead:
-        if b["text"] not in seen:
-            seen.add(b["text"])
-            uniq.append(b)
-    if uniq:
-        sections.append({"title": "Lead with these lines from your CV", "bullets": uniq[:10]})
-    gaps = [{"text": g["point"], "support": "gap", "source": "", "addresses": g["point"], "note": g.get("note")}
-            for g in fit.get("gaps", []) if g["status"] == "missing"]
-    if gaps:
-        sections.append({"title": "What they want to see that your CV doesn't show", "bullets": gaps[:10]})
-    jd_skills = inferer.analyse_jd(jd).skills
-    cv_skills = {s.lower() for s in inferer.analyse_jd(cv).skills}
-    skills = [{"skill": s, "support": "backed" if s.lower() in cv_skills else "gap"} for s in jd_skills]
-    return {"method": "keywords", "model": None, "headline": "", "summary": "",
-            "sections": sections, "skills": skills,
-            "advice": ["Move the lines above to the top of the relevant role or section.",
-                       "Use the job's own words for skills you really have (see the skills list).",
-                       "Install Ollama to get a fully rewritten target CV and a draft cover letter."]}
-
-
-# --------------------------------------------------------------------------- CV suggestions (fast)
-TIPS_SYSTEM = """You advise a candidate how to adapt THEIR OWN CV for one job. Use only the ids given.
-- emphasise: CV lines (C#) that best match the job; say briefly why and which requirement they show.
-- reword: CV lines worth rephrasing with the job's vocabulary; give the suggested wording, keeping the facts.
-- cut: CV lines least relevant to this job that could be shortened or moved down.
-- add: things the job wants that the CV doesn't show. Phrase as what to add IF TRUE, never as a claim.
-- keywords: job terms the candidate should mirror where truthful.
-Be brief: at most 5 items per list, each "why" under 15 words."""
-
-TIPS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "emphasise": {"type": "array", "items": {"type": "object", "properties": {"cv": {"type": "string"}, "why": {"type": "string"}}, "required": ["cv", "why"]}},
-        "reword": {"type": "array", "items": {"type": "object", "properties": {"cv": {"type": "string"}, "suggestion": {"type": "string"}}, "required": ["cv", "suggestion"]}},
-        "cut": {"type": "array", "items": {"type": "object", "properties": {"cv": {"type": "string"}, "why": {"type": "string"}}, "required": ["cv", "why"]}},
-        "add": {"type": "array", "items": {"type": "object", "properties": {"what": {"type": "string"}, "why": {"type": "string"}}, "required": ["what", "why"]}},
-        "keywords": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["emphasise", "reword", "cut", "add", "keywords"],
-}
-
-
-def cv_tips_keywords(cv: str, jd: str, fit: dict, inferer: DimensionInferer) -> dict:
-    """Instant CV suggestions from the fit analysis: what to lead with, what to add if true, what to trim."""
-    m = Matcher(cv, inferer)
-    used = set()
-    emphasise = []
-    for r in fit.get("requirements", []):
-        ev = r.get("evidence")
-        if r["status"] in ("met", "partial") and ev and not str(ev).startswith("Profile:") and ev not in used:
-            used.add(ev)
-            emphasise.append({"text": ev, "why": f"Shows: {r['text']}"})
-    add = [{"what": g["point"], "why": "Essential requirement your CV doesn't show." if g["type"] == "essential"
-            else "Preferred, would strengthen your application."}
-           for g in fit.get("gaps", []) if g.get("status") == "missing"][:6]
-    # Lines that match nothing in the job are candidates to shorten.
-    req_terms = set().union(*[_terms(r["text"]) for r in fit.get("requirements", [])] or [set()]) | _terms(jd[:4000])
-    scored = [(len(p["terms"] & req_terms) / max(1, len(p["terms"])), p) for p in m.pieces
-              if p["text"] not in used and len(p["terms"]) >= 4 and p["section"].lower() not in ("education", "languages", "skills")]
-    cut = [{"text": p["text"], "why": "Little overlap with this job; shorten or move down."}
-           for sc, p in sorted(scored, key=lambda x: x[0])[:4] if sc < 0.1]
-    jd_skills = inferer.analyse_jd(jd).skills
-    cv_low = cv.lower()
-    keywords = [s for s in jd_skills if s.lower() in cv_low]
-    missing_kw = [s for s in jd_skills if s.lower() not in cv_low]
-    return {"method": "keywords", "model": None, "emphasise": emphasise[:6], "reword": [], "cut": cut, "add": add,
-            "keywords": keywords, "missing_keywords": missing_kw}
-
-
-def cv_tips_llm(cv: str, jd: str, fit: dict | None, inferer: DimensionInferer, client: Ollama) -> dict:
-    m = Matcher(cv, inferer)
-    cv_list, cv_ids = _numbered_cv(m)
-    reqs = "\n".join(f"- [{r['type']}] {r['text']}" for r in (fit or {}).get("requirements", [])[:15]) or jd[:3000]
-    raw = client.chat_json(TIPS_SYSTEM, f"JOB REQUIREMENTS\n{reqs}\n\nCV LINES\n{cv_list}", TIPS_SCHEMA,
-                           temperature=0.3, num_predict=700)
-
-    def resolve(items, key):
-        out = []
-        for x in items or []:
-            p = cv_ids.get(str(x.get("cv", "")).strip().upper())
-            if p:
-                out.append({"text": p["text"], key: x.get(key, "")})
-        return out[:5]
-    cv_low = cv.lower()
-    kws = [k for k in raw.get("keywords", [])][:12]
-    return {"method": "ollama", "model": client.model,
-            "emphasise": resolve(raw.get("emphasise"), "why"), "reword": resolve(raw.get("reword"), "suggestion"),
-            "cut": resolve(raw.get("cut"), "why"), "add": [a for a in raw.get("add", [])][:5],
-            "keywords": [k for k in kws if k.lower() in cv_low],
-            "missing_keywords": [k for k in kws if k.lower() not in cv_low]}

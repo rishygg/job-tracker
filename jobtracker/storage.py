@@ -160,6 +160,26 @@ CREATE TABLE IF NOT EXISTS practice (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    section TEXT NOT NULL,
+    title TEXT,
+    org TEXT,
+    location TEXT,
+    start TEXT,
+    "end" TEXT,
+    details TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS inbox (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    url TEXT,
+    text TEXT,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     industry TEXT,
@@ -183,6 +203,7 @@ CAREER = {
                 {"competencies", "skills"}),
     "practice": (["question", "category", "source", "ref", "answer", "rating", "feedback"], {"feedback"}),
     "notes": (["industry", "company", "title", "body", "tags", "link"], {"tags"}),
+    "entries": (["section", "title", "org", "location", "start", "end", "details", "position"], set()),
 }
 
 # Columns added after the first release. Existing databases are migrated on start-up.
@@ -198,7 +219,10 @@ NEW_COLUMNS = {
     "cv_version": "TEXT",
     "fit_rating": "INTEGER",      # your own 1-5 rating of how well you fit the role
     "salary": "TEXT",
+    "workload": "TEXT",           # e.g. "80–100%"
+    "contract": "TEXT",           # Permanent / Fixed-term / Internship / Freelance
 }
+OPP_NEW_COLUMNS = {"workload": "TEXT", "contract": "TEXT"}
 
 APP_FIELDS = ["company", "position", "location", "date_applied", "status", "source", "contact",
               "url", "notes", "role_area_override", "region_override", *NEW_COLUMNS]
@@ -244,6 +268,10 @@ class Store:
             for col, typ in NEW_COLUMNS.items():
                 if col not in have:
                     c.execute(f"ALTER TABLE applications ADD COLUMN {col} {typ}")
+            have_o = {r["name"] for r in c.execute("PRAGMA table_info(opportunities)")}
+            for col, typ in OPP_NEW_COLUMNS.items():
+                if col not in have_o:
+                    c.execute(f"ALTER TABLE opportunities ADD COLUMN {col} {typ}")
 
     @contextmanager
     def _conn(self):
@@ -440,7 +468,7 @@ class Store:
                       "dismissed = excluded.dismissed", (key, _iso_or_none(until), int(dismiss)))
 
     # ---- opportunities (saved jobs not applied to yet) ----------------
-    OPP_FIELDS = ("company", "position", "location", "url", "source", "job_description", "deadline", "notes", "status",
+    OPP_FIELDS = ("company", "position", "location", "url", "source", "job_description", "deadline", "notes", "workload", "contract", "status",
                   "application_id")
 
     def opportunities(self, status: str | None = None) -> pd.DataFrame:
@@ -625,7 +653,8 @@ class Store:
             now = datetime.now().isoformat(timespec="seconds")
             f.update(created_at=now, updated_at=now)
         with self._conn() as c:
-            cur = c.execute(f"INSERT INTO {table} ({', '.join(f)}) VALUES ({', '.join('?' * len(f))})", list(f.values()))
+            cur = c.execute(f"INSERT INTO {table} ({', '.join(chr(34) + k + chr(34) for k in f)}) VALUES ({', '.join('?' * len(f))})",
+                            list(f.values()))
             return cur.lastrowid
 
     def update_row(self, table: str, row_id: int, **fields) -> None:
@@ -635,7 +664,7 @@ class Store:
         if table != "interview_questions":
             f["updated_at"] = datetime.now().isoformat(timespec="seconds")
         with self._conn() as c:
-            c.execute(f"UPDATE {table} SET {', '.join(f'{k} = ?' for k in f)} WHERE id = ?", [*f.values(), row_id])
+            c.execute(f"UPDATE {table} SET {', '.join(chr(34) + k + chr(34) + ' = ?' for k in f)} WHERE id = ?", [*f.values(), row_id])
 
     def delete_row(self, table: str, row_id: int) -> None:
         with self._conn() as c:
@@ -654,3 +683,35 @@ class Store:
                 self.update_row("interview_questions", int(q["id"]), **data)
             else:
                 self.add_row("interview_questions", **data)
+
+    # ---- inbox: job postings sent from the browser bookmark ---------------------
+    def add_inbox(self, item_id: str, title: str | None, url: str | None, text: str | None) -> None:
+        now = datetime.now()
+        with self._conn() as c:
+            c.execute("DELETE FROM inbox WHERE created_at < ?", ((now - pd.Timedelta(days=7)).isoformat(),))
+            c.execute("INSERT OR REPLACE INTO inbox (id, title, url, text, created_at) VALUES (?, ?, ?, ?, ?)",
+                      (item_id, title, url, text, now.isoformat(timespec="seconds")))
+
+    def get_inbox(self, item_id: str) -> dict | None:
+        with self._conn() as c:
+            r = c.execute("SELECT * FROM inbox WHERE id = ?", (item_id,)).fetchone()
+        return dict(r) if r else None
+
+    def replace_entry_evidence(self, records: list[dict]) -> None:
+        """Evidence derived from your entries (source 'entry'); keeps notes/confirmations on unchanged lines.
+        Once entries exist, evidence read from an uploaded CV is no longer used."""
+        import json
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._conn() as c:
+            old = {r["text"]: dict(r) for r in c.execute("SELECT * FROM evidence WHERE source IN ('entry', 'cv')").fetchall()}
+            c.execute("DELETE FROM evidence WHERE source IN ('entry', 'cv')")
+            for i, r in enumerate(records):
+                prev = old.get(r["text"], {})
+                c.execute(
+                    "INSERT INTO evidence (position, source, section, context, text, kind, metrics, skills, stakeholders, "
+                    "industry, did, outcome, note, confirmed, hidden, enriched, updated_at) "
+                    "VALUES (?, 'entry', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                    (i, r.get("section"), r.get("context"), r["text"], r.get("kind"), json.dumps(r.get("metrics", [])),
+                     json.dumps(r.get("skills", [])), json.dumps(r.get("stakeholders", [])), r.get("industry"),
+                     prev.get("did"), prev.get("outcome"), prev.get("note"), int(prev.get("confirmed") or 0),
+                     int(prev.get("hidden") or 0), now))

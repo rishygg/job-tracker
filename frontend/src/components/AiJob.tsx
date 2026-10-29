@@ -67,7 +67,7 @@ export function JobProgress({ job, onCancel, speed }: { job: Dict; onCancel?: ()
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-medium text-ink">{job.label}</div>
           <div className="text-[12px] text-ink-soft mt-0.5">{t.line}</div>
-          <div className="h-1.5 rounded-full bg-white mt-2 overflow-hidden">
+          <div className="h-1.5 rounded-full bg-surface mt-2 overflow-hidden">
             {t.pct === null
               ? <div className="h-full w-1/3 bg-brand/50 rounded-full animate-[slide_1.4s_ease-in-out_infinite]" />
               : <div className="h-full bg-brand rounded-full transition-all duration-700" style={{ width: `${Math.max(4, t.pct * 100)}%` }} />}
@@ -109,7 +109,7 @@ export function AiActivity() {
     <div className="hidden lg:block mx-3 mb-3 rounded-lg border border-line bg-canvas p-2.5 text-[11.5px]" title={t.line}>
       <div className="flex items-center gap-1.5 font-medium text-ink"><Sparkles size={12} className="text-brand" />AI working{jobs.length > 1 ? ` · ${jobs.length} tasks` : ""}</div>
       <div className="text-ink-soft truncate mt-0.5">{run.label}</div>
-      <div className="h-1 rounded-full bg-white mt-1.5 overflow-hidden">
+      <div className="h-1 rounded-full bg-surface mt-1.5 overflow-hidden">
         {t.pct === null ? <div className="h-full w-1/3 bg-brand/50 rounded-full animate-[slide_1.4s_ease-in-out_infinite]" />
           : <div className="h-full bg-brand rounded-full transition-all duration-700" style={{ width: `${Math.max(4, t.pct * 100)}%` }} />}
       </div>

@@ -102,7 +102,7 @@ def test_filters_and_analytics(client):
 
 def test_parse_and_guess(client):
     p = client.post("/api/parse", json={"job_description": "Data Analyst\nRoche is hiring. Hybrid. SQL and Python."}).json()
-    assert p["guess"] == {"position": "Data Analyst", "company": "Roche"}
+    assert p["guess"]["position"] == "Data Analyst" and p["guess"]["company"] == "Roche"
     assert p["work_mode"] == "Hybrid"
     assert guess_title_company("Title: Medical Writer\nCompany: Lonza")["company"] == "Lonza"
 

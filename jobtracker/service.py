@@ -32,7 +32,10 @@ DEFAULT_SETTINGS = {
     "profile": {"languages": [], "permits": {}, "years_experience": None, "degree": "", "locations": [],
                 "relocate": False},
     # Local AI (Ollama)
-    "ai_engine": "auto",          # auto | ollama | keywords
+    "ai_engine": "auto",           # kept for older databases; AI no longer scores jobs
+    "digest_auto": False,          # read new job descriptions with Ollama in the background
+    "rank_last_codes": [], "rank_parts": [],         # job codes in the last ranking prompt, to spot ones missing from the reply
+    "rank_goals": "",              # your criteria for chat rankings (kept private, prefilled each time)
     "ollama_url": "http://localhost:11434",
     "ollama_model": "",
     # How you write, used by the builders' advice and the chatbot brief.
@@ -90,6 +93,9 @@ FILTER_FIELDS = ["role_area", "industry", "seniority", "region", "source", "stat
                  "work_mode", "language", "work_authorization"]
 
 
+REACHED_ORDER = ["Applied", "Screening", "Interview", "Final interview", "Offer", "Accepted"]
+
+
 def apply_filters(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """Filters shared by every list, chart and insight: multi-value fields are separated by "|"."""
     if df.empty:
@@ -101,6 +107,10 @@ def apply_filters(df: pd.DataFrame, params: dict) -> pd.DataFrame:
             vals = [x for x in str(v).split("|") if x]
             if vals:
                 d = d[d[f].astype(str).isin(vals)]
+    reached = params.get("reached")
+    if reached in REACHED_ORDER:
+        rank = {s: i for i, s in enumerate(REACHED_ORDER)}
+        d = d[d["furthest_stage"].map(rank).fillna(0) >= rank[reached]]
     if params.get("date_from"):
         d = d[d["date_applied"] >= pd.Timestamp(params["date_from"])]
     if params.get("date_to"):

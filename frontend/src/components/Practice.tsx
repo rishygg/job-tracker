@@ -1,24 +1,22 @@
 import { useState } from "react";
-import { BookOpen, CalendarClock, Check, GraduationCap, History, Loader2, Plus, Sparkles, Target, Trash2, X } from "lucide-react";
+import { BookOpen, CalendarClock, Check, ClipboardCopy, GraduationCap, History, Loader2, Plus, Target, Trash2, X } from "lucide-react";
 import { api, type Dict } from "../api";
 import { useApi, useApp } from "../store";
 import { cls, fmtDate } from "../lib";
 import { EmptyState, Modal, Skeleton } from "./ui";
-import { JobProgress, isActive, useJob } from "./AiJob";
 import { CategoryChip, Rating } from "./careerShared";
+import { copyText } from "./Chat";
 
 const SOURCE: Record<string, { label: string; icon: typeof Target }> = {
   history: { label: "From your interviews", icon: History },
   upcoming: { label: "For your next interview", icon: CalendarClock },
   focus: { label: "Weak spot", icon: Target },
   common: { label: "Common question", icon: GraduationCap },
-  ai: { label: "Predicted by AI", icon: Sparkles },
   custom: { label: "Your question", icon: Plus },
 };
 
 export function PracticeTab() {
   const { data, loading } = useApi<Dict>("/api/career/practice");
-  const { data: ai } = useApi<Dict>("/api/ai/status");
   const [open, setOpen] = useState<Dict | null>(null);
   const [own, setOwn] = useState("");
   if (loading && !data) return <Skeleton className="h-96" />;
@@ -28,16 +26,17 @@ export function PracticeTab() {
       <div className="space-y-4 min-w-0">
         {data?.upcoming?.length > 0 && (
           <section className="space-y-2">
-            {data!.upcoming.map((u: Dict) => <UpcomingCard key={u.application_id} u={u} ai={ai} set={data!.ai_sets?.[u.application_id]}
-              job={data!.jobs?.[u.application_id]} onPractise={(q) => setOpen({ ...q, ref: `application:${u.application_id}` })} />)}
+            {data!.upcoming.map((u: Dict) => <UpcomingCard key={u.application_id} u={u} />)}
           </section>
         )}
         <section className="card">
-          <div className="px-5 py-3.5 border-b border-line flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-[15px] font-semibold">Your practice plan</h2>
-            <span className="text-[11.5px] text-ink-muted">Your own interviews first, then your next interviews, then your weak spots.</span>
+          <div className="px-5 py-3.5 border-b border-line flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-[15px] font-semibold">Your practice plan</h2>
+              <span className="text-[11.5px] text-ink-muted">Your own interviews first, then your next interviews, then your weak spots.</span>
+            </div>
           </div>
-          {!s.length ? <EmptyState icon={<GraduationCap size={20} />} title="Nothing to practise yet">Log an interview or move an application to an interview stage.</EmptyState> : (
+          {!s.length ? <EmptyState art="target" title="Nothing to practise yet">Log an interview or move an application to an interview stage.</EmptyState> : (
             <ul className="divide-y divide-line">
               {s.map((q, i) => {
                 const src = SOURCE[q.source] ?? SOURCE.common;
@@ -48,7 +47,7 @@ export function PracticeTab() {
                       <div className="text-[13.5px] font-medium leading-snug">{q.question}</div>
                       <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11.5px] text-ink-muted">
                         <CategoryChip category={q.category} /><span>{q.reason}</span>
-                        {q.story && <span className="inline-flex items-center gap-1 text-[#6442b4]"><BookOpen size={11} />Story: {q.story.title}</span>}
+                        {q.story && <span className="inline-flex items-center gap-1 text-violet"><BookOpen size={11} />Story: {q.story.title}</span>}
                       </div>
                     </div>
                     <button className="btn-secondary btn-sm shrink-0" onClick={() => setOpen(q)}>Practise</button>
@@ -88,59 +87,42 @@ export function PracticeTab() {
           )}
         </section>
       </aside>
-      {open && <PracticeModal item={open} onClose={() => setOpen(null)} ai={ai} />}
+      {open && <PracticeModal item={open} onClose={() => setOpen(null)} />}
     </div>
   );
 }
 
-function UpcomingCard({ u, ai, set, job: initialJob, onPractise }: { u: Dict; ai?: Dict | null; set?: Dict; job?: Dict; onPractise: (q: Dict) => void }) {
-  const { toast, refresh } = useApp();
-  const [job, setJob] = useJob(isActive(initialJob) ? initialJob : null, undefined, (j) => {
-    refresh();
-    if (j.status === "error") toast(j.error ?? "Couldn't predict questions", "error");
-  });
-  async function predict() {
-    try { setJob((await api.post("/api/career/practice/questions", { application_id: u.application_id })).job); } catch (e: any) { toast(e.message, "error"); }
-  }
+function UpcomingCard({ u }: { u: Dict }) {
   return (
-    <div className="card p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[13.5px]"><CalendarClock size={14} className="inline -mt-0.5 mr-1.5 text-[#3d6fd6]" /><b>{u.stage}</b> with <b>{u.company}</b> <span className="text-ink-muted">· {u.position} · {u.when}</span></div>
-        {ai?.available && !isActive(job) && <button className="btn-secondary btn-sm" onClick={predict}><Sparkles size={13} /> {set ? "Predict again" : "Predict questions with AI"}</button>}
-      </div>
-      {isActive(job) && <div className="mt-3"><JobProgress job={job!} speed={ai?.speed} /></div>}
-      {set?.questions?.length > 0 && (
-        <ul className="mt-3 space-y-1.5">
-          {set!.questions.map((q: Dict, i: number) => (
-            <li key={i} className="flex items-start gap-2 text-[13px]">
-              <Sparkles size={12} className="text-brand mt-1 shrink-0" />
-              <div className="flex-1"><div>{q.question}</div>{q.reason && <div className="text-[11.5px] text-ink-muted">{q.reason}</div>}</div>
-              <button className="btn-ghost btn-sm" onClick={() => onPractise(q)}>Practise</button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="card p-4 text-[13.5px]">
+      <CalendarClock size={14} className="inline -mt-0.5 mr-1.5 text-info-bright" /><b>{u.stage}</b> with <b>{u.company}</b>
+      <span className="text-ink-muted"> · {u.position} · {u.when}</span>
+      <div className="text-[12px] text-ink-muted mt-1">Open the job and use Prepare → Interview for questions from its requirements, or a prompt for your chat assistant.</div>
     </div>
   );
 }
 
-function PracticeModal({ item, onClose, ai }: { item: Dict; onClose: () => void; ai?: Dict | null }) {
+export function PracticeModal({ item, onClose }: { item: Dict; onClose: () => void }) {
   const { toast, refresh } = useApp();
   const [p, setP] = useState<Dict>({ ...item });
   const [busy, setBusy] = useState<string | null>(null);
-  const reload = (id: number) => api.get(`/api/career/practice/${id}`).then((x) => setP((o) => ({ ...o, ...x }))).catch(() => {});
-  const [job, setJob] = useJob(null, undefined, (j) => { if (p.id) reload(p.id); refresh(); if (j.status === "error") toast(j.error ?? "AI feedback failed", "error"); });
 
-  async function feedback(engine: "keywords" | "ollama") {
+  async function feedback() {
     if (!p.answer?.trim()) return;
-    setBusy(engine);
+    setBusy("keywords");
     try {
-      const body = { question: p.question, category: p.category, source: p.source, ref: p.ref, answer: p.answer, rating: p.rating, engine };
+      const body = { question: p.question, category: p.category, source: p.source, ref: p.ref, answer: p.answer, rating: p.rating, engine: "keywords" };
       const r = p.id ? await api.patch(`/api/career/practice/${p.id}`, body) : await api.post("/api/career/practice", body);
       setP((o) => ({ ...o, id: r.id, feedback: r.feedback ?? o.feedback }));
-      if (r.job) setJob(r.job);
       refresh();
     } catch (e: any) { toast(e.message, "error"); } finally { setBusy(null); }
+  }
+  async function copyPrompt() {
+    const prompt = `Act as an experienced interviewer. Here is an interview question and my answer as I'd say it.\n\n` +
+      `QUESTION: ${p.question}\n\nMY ANSWER:\n${p.answer}\n\n` +
+      `Score it 1-5. Tell me what works, the 2-3 most important things to improve (structure: situation, task, action, result; ` +
+      `specifics; length), suggest a stronger opening sentence and the follow-up question you'd ask. Keep it short.`;
+    if (await copyText(prompt)) toast("Prompt copied. Paste it into your chat assistant.");
   }
   async function saveRating(v: number | null) {
     setP((o) => ({ ...o, rating: v }));
@@ -157,38 +139,37 @@ function PracticeModal({ item, onClose, ai }: { item: Dict; onClose: () => void;
       footer={<>
         {p.id && <button className="btn-ghost mr-auto text-danger" onClick={remove}><Trash2 size={14} /> Delete</button>}
         <button className="btn-secondary" onClick={onClose}>Close</button>
-        <button className="btn-secondary" disabled={!p.answer?.trim() || !!busy} onClick={() => feedback("keywords")}>{busy === "keywords" ? "Checking…" : "Quick check"}</button>
-        {ai?.available && <button className="btn-primary" disabled={!p.answer?.trim() || !!busy || isActive(job)} onClick={() => feedback("ollama")}><Sparkles size={14} /> AI feedback</button>}
+        <button className="btn-secondary" disabled={!p.answer?.trim()} onClick={copyPrompt} title="Copy a prompt asking your chat assistant for feedback"><ClipboardCopy size={14} /> Feedback prompt</button>
+        <button className="btn-primary" disabled={!p.answer?.trim() || !!busy} onClick={feedback}>{busy ? "Checking…" : "Quick check & save"}</button>
       </>}>
       <div className="space-y-4">
         <div>
           <div className="text-[15px] font-semibold leading-snug">{p.question}</div>
           <div className="flex flex-wrap items-center gap-2 mt-1 text-[12px] text-ink-muted"><CategoryChip category={p.category} />{p.reason}</div>
-          {p.story && <div className="text-[12px] text-[#6442b4] mt-1.5 flex items-center gap-1"><BookOpen size={12} />Story that fits: {p.story.title}</div>}
+          {p.story && <div className="text-[12px] text-violet mt-1.5 flex items-center gap-1"><BookOpen size={12} />Story that fits: {p.story.title}</div>}
         </div>
         <div>
           <textarea className="textarea h-48 text-[13.5px]" value={p.answer ?? ""} onChange={(e) => setP({ ...p, answer: e.target.value })}
             placeholder="Write your answer as you'd say it. For 'tell me about a time' questions: situation, your task, what you did, and the result." />
           <div className="flex justify-between text-[11.5px] text-ink-muted mt-1 num"><span>{words} words · about {Math.max(0, Math.round(words / 140 * 10) / 10)} min spoken</span><span>Aim for 150–250 words</span></div>
         </div>
-        {isActive(job) && <JobProgress job={job!} speed={ai?.speed} />}
         {fb && (
           <section className="rounded-xl border border-line p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="eyebrow flex items-center gap-1.5">{fb.method === "ollama" ? <><Sparkles size={11} className="text-brand" />AI feedback · {fb.model}</> : "Quick check (rules)"}</div>
+              <div className="eyebrow flex items-center gap-1.5">Quick check (rules)</div>
               <div className="text-[13px] num">Score <b>{fb.score}/5</b></div>
             </div>
             {fb.star && (
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(fb.star).map(([k, v]) => (
-                  <span key={k} className={cls("chip h-6 capitalize", v ? "bg-[#e8f6f0] text-[#0a7a53] border-[#bfe6d6]" : "border-dashed border-line-strong text-ink-muted")}>
+                  <span key={k} className={cls("chip h-6 capitalize", v ? "bg-ok-soft text-ok border-ok-line" : "border-dashed border-line-strong text-ink-muted")}>
                     {v ? <Check size={11} /> : <X size={11} />}{k}
                   </span>
                 ))}
               </div>
             )}
-            {fb.strengths?.length > 0 && <div><div className="text-[12px] font-semibold text-[#0a7a53] mb-1">Working</div><ul className="space-y-1 text-[13px]">{fb.strengths.map((x: string, i: number) => <li key={i} className="flex gap-1.5"><Check size={13} className="mt-0.5 text-[#0e9a69] shrink-0" />{x}</li>)}</ul></div>}
-            {fb.improve?.length > 0 && <div><div className="text-[12px] font-semibold text-[#a35f00] mb-1">Improve</div><ul className="space-y-1 text-[13px]">{fb.improve.map((x: string, i: number) => <li key={i} className="flex gap-1.5"><span className="text-[#a35f00] shrink-0">→</span>{x}</li>)}</ul></div>}
+            {fb.strengths?.length > 0 && <div><div className="text-[12px] font-semibold text-ok mb-1">Working</div><ul className="space-y-1 text-[13px]">{fb.strengths.map((x: string, i: number) => <li key={i} className="flex gap-1.5"><Check size={13} className="mt-0.5 text-ok-bright shrink-0" />{x}</li>)}</ul></div>}
+            {fb.improve?.length > 0 && <div><div className="text-[12px] font-semibold text-warn mb-1">Improve</div><ul className="space-y-1 text-[13px]">{fb.improve.map((x: string, i: number) => <li key={i} className="flex gap-1.5"><span className="text-warn shrink-0">→</span>{x}</li>)}</ul></div>}
             {fb.better_opening && <div className="text-[13px]"><span className="text-[12px] font-semibold text-ink-soft">Stronger opening: </span>“{fb.better_opening}”</div>}
             {fb.follow_up && <div className="text-[13px] text-ink-soft"><span className="text-[12px] font-semibold">Likely follow-up: </span>{fb.follow_up}</div>}
           </section>

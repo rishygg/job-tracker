@@ -231,7 +231,7 @@ def practice_set(interviews: list[dict], questions: list[dict], stories: list[di
     # 2. Next interviews: what that company asked before, its essential requirements, motivation.
     for u in upcoming:
         job = job_profiles.get(u["application_id"]) or {}
-        ref = f"application:{u['application_id']}"
+        ref = u.get("ref") or f"application:{u['application_id']}"
         p0 = 0 if u.get("date") else 2  # a dated interview is more urgent than one that's only "coming up"
         asked_motivation = False
         for q in questions:
@@ -346,54 +346,6 @@ def _follow_up(cat: str, star: dict) -> str | None:
     return None
 
 
-FEEDBACK_SYSTEM = """You are an experienced interviewer. Judge the candidate's answer to the question for the role
-described. Be specific and candid; quote their words when pointing at something. Keep every field under 35 words.
-Return: score (1-5), strengths (up to 3), improve (up to 3 concrete changes), follow_up (the next question you'd ask),
-better_opening (a stronger first sentence using only facts from their answer)."""
-
-FEEDBACK_SCHEMA = {"type": "object", "properties": {
-    "score": {"type": "integer"}, "strengths": {"type": "array", "items": {"type": "string"}},
-    "improve": {"type": "array", "items": {"type": "string"}}, "follow_up": {"type": "string"},
-    "better_opening": {"type": "string"}}, "required": ["score", "strengths", "improve", "follow_up", "better_opening"]}
-
-
-def answer_feedback_ai(question: str, answer: str, context: str, client, category: str | None = None) -> dict:
-    base = answer_feedback(question, answer, category)
-    raw = client.chat_json(FEEDBACK_SYSTEM, f"ROLE: {context or 'not specified'}\nQUESTION: {question}\nANSWER: {answer[:2500]}",
-                           FEEDBACK_SCHEMA, temperature=0.3, num_predict=450)
-    score = raw.get("score")
-    return {**base, "method": "ollama", "model": client.model,
-            "score": int(score) if isinstance(score, (int, float)) and 1 <= score <= 5 else base["score"],
-            "strengths": [s for s in raw.get("strengths", []) if isinstance(s, str) and s][:3] or base["strengths"],
-            "improve": [s for s in raw.get("improve", []) if isinstance(s, str) and s][:3] or base["improve"],
-            "follow_up": raw.get("follow_up") or base["follow_up"], "better_opening": raw.get("better_opening") or None}
-
-
-QUESTIONS_SYSTEM = """You prepare a candidate for an interview. Using the job and the candidate's own interview history,
-write the questions this interviewer is most likely to ask. Favour questions about the job's essential requirements and
-about the areas the candidate has struggled with. Each with "why" (under 25 words) and "category" (one of: """ + \
-    ", ".join(CATEGORIES) + ")."
-
-QUESTIONS_SCHEMA = {"type": "object", "properties": {"questions": {"type": "array", "items": {"type": "object", "properties": {
-    "question": {"type": "string"}, "why": {"type": "string"}, "category": {"type": "string"}},
-    "required": ["question", "why", "category"]}}}, "required": ["questions"]}
-
-
-def practice_questions_ai(company: str, position: str, job: dict, theme: dict, client) -> list[dict]:
-    hist = "; ".join(f["area"] for f in theme.get("focus", [])) or "no history yet"
-    struggled = " | ".join(s["text"][:120] for s in theme.get("struggled", [])[:3])
-    user = (f"JOB: {position} at {company}\nPRIORITIES: {' | '.join(job.get('priorities', [])[:5])}\n"
-            f"ESSENTIAL: {' | '.join(job.get('essential', [])[:6])}\nCANDIDATE'S WEAK AREAS: {hist}\n"
-            f"WHAT THEY STRUGGLED WITH BEFORE: {struggled or 'not recorded'}\nWrite 6 questions.")
-    raw = client.chat_json(QUESTIONS_SYSTEM, user, QUESTIONS_SCHEMA, temperature=0.5, num_predict=500)
-    out = []
-    for q in raw.get("questions", [])[:8]:
-        if isinstance(q, dict) and q.get("question"):
-            cat = q.get("category") if q.get("category") in CATEGORIES else categorise(q["question"])
-            out.append({"question": q["question"].strip(), "category": cat, "reason": q.get("why") or "", "source": "ai"})
-    return out
-
-
 # --------------------------------------------------------------------------- story suggestions
 def suggest_stories(evidence: list[dict], stories: list[dict], limit: int = 5) -> list[dict]:
     """Achievements from your evidence bank that would make good interview stories and aren't in the bank yet."""
@@ -431,7 +383,7 @@ def story_check(story: dict) -> list[str]:
 
 # --------------------------------------------------------------------------- skills report
 def skills_report(jobs: list[dict], inferer: DimensionInferer, have: set[str], fits: dict[str, dict],
-                  today: date | None = None, recent_days: int = 60) -> dict:
+                  today: date | None = None, recent_days: int = 60, material: str = "") -> dict:
     """Skills across the roles you want.
 
     jobs: [{key, company, position, jd, date, kind, wanted}] (applications and saved jobs)
@@ -445,7 +397,8 @@ def skills_report(jobs: list[dict], inferer: DimensionInferer, have: set[str], f
     recent_n = sum(1 for j in jobs if j["date"] and j["date"] >= cut)
     older_n = len(jobs) - recent_n
     for j in jobs:
-        skills = inferer.analyse_jd(j["jd"]).skills
+        skills = list(dict.fromkeys([x.lower() for x in inferer.analyse_jd(j["jd"]).skills]
+                                    + [x.lower() for x in j.get("extra_skills", [])]))
         for s in skills:
             st = stats.setdefault(s, {"skill": s, "jobs": 0, "recent": 0, "older": 0, "examples": []})
             st["jobs"] += 1
@@ -461,7 +414,9 @@ def skills_report(jobs: list[dict], inferer: DimensionInferer, have: set[str], f
         trend = None
         if recent_n >= 3 and older_n >= 3:
             trend = round(st["recent"] / recent_n - st["older"] / older_n, 2)
-        rows.append({**st, "label": display_skill(s), "share": round(share, 2), "have": s.lower() in have, "group": groups.get(s, ""), "trend": trend})
+        mat = material.lower()
+        has = s.lower() in have or bool(mat and re.search(rf"(?<![\w]){re.escape(s.lower())}(?![\w])", mat))
+        rows.append({**st, "label": display_skill(s), "share": round(share, 2), "have": has, "group": groups.get(s, ""), "trend": trend})
     rows.sort(key=lambda r: (-r["jobs"], r["skill"]))
 
     # Essential requirements you were missing, across all fit analyses.

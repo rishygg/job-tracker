@@ -1,8 +1,9 @@
-"""Fit analysis: requirement extraction, evidence matching, blockers, the Ollama path (with a fake
-Ollama server) and the API endpoints."""
+"""Fit analysis (rules), the profile as entries, chat-assistant prompts and rankings, background reading with a fake
+Ollama server, and the API endpoints."""
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -11,11 +12,12 @@ from fastapi.testclient import TestClient
 
 from jobtracker.api import create_app
 from jobtracker.dimensions import DimensionInferer
-from jobtracker.fit import analyse_keywords, analyse_llm, extract_requirements, recommend, target_cv_llm
-from jobtracker.llm import Ollama
+from jobtracker.fit import analyse_keywords, extract_requirements, recommend
 from jobtracker.service import Service
 
-CV = (Path(__file__).parent / "fixtures" / "cv.txt").read_text()
+FIX = Path(__file__).parent / "fixtures"
+CV = (FIX / "cv.txt").read_text()
+MESSY = (FIX / "cv_messy.txt").read_text()
 INF = DimensionInferer.from_yaml()
 JD = """Data Scientist, Clinical Imaging
 About us
@@ -82,9 +84,149 @@ def test_recommend_rules():
 
 
 # ---------------------------------------------------------------- fake Ollama
-class FakeOllama(BaseHTTPRequestHandler):
-    reply: dict = {}
 
+
+# ---------------------------------------------------------------- the user's two problem postings
+def test_benefits_and_company_text_are_not_requirements():
+    reqs = extract_requirements((FIX / "jd_jobsch.txt").read_text())
+    texts = " ".join(r["text"] for r in reqs)
+    assert len(reqs) <= 6, reqs
+    assert "Master 2 in Data Engineering" in texts and "English" in texts
+    assert not any(w in texts for w in ("reasons to join", "Capgemini group", "certification path", "sogeti.com", "interview tips"))
+    assert any(r["soft"] for r in reqs if "Autonomy" in r["text"])
+
+
+def test_site_summary_line_is_not_double_counted():
+    reqs = extract_requirements((FIX / "jd_uk_summary.txt").read_text())
+    texts = [r["text"] for r in reqs]
+    assert not any(t.startswith(("Requirements:", "Degree level education")) for t in texts)
+    assert "Microsoft Office" not in texts
+    pref = [r["text"] for r in reqs if r["type"] == "preferred"]
+    assert any("medical sales" in t for t in pref) and any("primary care" in t for t in pref)
+    res = analyse_keywords(CV, (FIX / "jd_uk_summary.txt").read_text(), {**PROFILE, "degree": "Master"}, INF, "United Kingdom")
+    degree = next(r for r in res["requirements"] if "degree level" in r["text"].lower())
+    assert degree["status"] == "met"  # from the profile, not from a random CV line
+    assert len(res["soft_skills"]) == 2  # listed separately, not counted as failures
+
+
+def test_german_posting_has_no_score():
+    jd = ("Praktikant/in Datenanalyse 80-100%\nRoche AG\nIhre Aufgaben\nSie unterstützen das Team bei der Analyse von Daten "
+          "und der Erstellung von Berichten für die Geschäftsleitung. Ihr Profil\nSie haben ein abgeschlossenes Studium und "
+          "sehr gute Kenntnisse in Python und SQL sowie fliessende Deutschkenntnisse. Wir bieten Ihnen eine spannende Aufgabe "
+          "in einem dynamischen Umfeld mit vielen Möglichkeiten und einem motivierten Team.")
+    res = analyse_keywords(CV, jd, PROFILE, INF, "Switzerland")
+    assert res["score"] is None and res["posting_language"] == "de" and res["requirements"] == []
+    assert res["recommendation"]["action"] in ("Not scored", "Deprioritise")
+
+
+def test_posting_fields():
+    from jobtracker import posting as P
+    ex = P.extract((FIX / "jd_jobsch.txt").read_text())
+    assert ex["company"] == "Capgemini Suisse SA" and ex["position"].startswith("Data Engineer")
+    assert ex["workload"] == "100%" and ex["contract"] == "Internship"
+    li = P.extract("Digital & Data Analyst (m/w/d)\nNorgine · Zurich, Switzerland (Hybrid)\n2 days ago\nAbout the job\nWe are looking for an analyst.")
+    assert (li["position"], li["company"], li["location"]) == ("Digital & Data Analyst", "Norgine", "Zurich, Switzerland")
+    de = P.extract("Praktikant/in Datenanalyse 80-100% (w/m/d)\nRoche AG\nBasel\nBewerbungsfrist: 15.11.2026")
+    assert de["workload"] == "80–100%" and de["deadline"] == "2026-11-15" and "80" not in de["position"]
+    cleaned, removed = P.clean((FIX / "jd_jobsch.txt").read_text())
+    assert "AI Generated Summary" not in cleaned and "See company profile" not in cleaned and removed["summary"] > 5
+
+
+# ---------------------------------------------------------------- entries
+def test_entries_from_cv_and_paste():
+    from jobtracker.entries import from_cv, split_text, to_text
+    es = from_cv(MESSY.replace("EDUCATION\n", "EDUCATION\nAddress: Phone: Email: 12 Example Strasse +41 79 123 45 67 jamie@example.com\n", 1), INF)
+    assert not any("@" in (e["details"] or "") or "@" in (e["title"] or "") for e in es)
+    assert {e["section"] for e in es} >= {"education", "experience", "skills"}
+    ra = next(e for e in es if e["title"] == "Research Assistant")
+    assert ra["start"] == "Mar 2025" and "Investigated" in ra["details"]
+    glued = "Feb 2025 - Apr 2025 May 2023 - Aug 2023Research Internship, Mood and Anxiety Department, Institute of Mental Health\n- Co-authored a publication"
+    d = split_text("experience", glued)
+    assert [(x["start"], x["title"]) for x in d] == [("Feb 2025", "Research Internship"), ("May 2023", "Research Internship")]
+    assert "EXPERIENCE" in to_text(es) and "- Investigated" in to_text(es)
+
+
+# ---------------------------------------------------------------- API
+@pytest.fixture
+def client(tmp_path):
+    return TestClient(create_app(Service(tmp_path / "fit.db")))
+
+
+def setup_profile(c, url="http://127.0.0.1:9"):
+    c.put("/api/settings", json={"cv_text": CV, "profile": PROFILE, "ollama_url": url, "ollama_model": "qwen2.5:7b"})
+
+
+def test_fit_api(client):
+    setup_profile(client)
+    app_id = client.post("/api/applications", json={"company": "Acme Bio", "position": "Data Scientist",
+                                                    "location": "Basel", "job_description": JD}).json()["id"]
+    got = client.get(f"/api/fit/application/{app_id}").json()  # scored instantly on save
+    assert got["result"]["method"] == "keywords" and got["stale"] is False
+    client.patch(f"/api/applications/{app_id}", json={"job_description": JD + "\n- Knowledge of SQL is required"})
+    after = client.get(f"/api/fit/application/{app_id}").json()
+    assert after["stale"] is False and any("SQL" in r["text"] for r in after["result"]["requirements"])
+    assert client.post(f"/api/docs/application/{app_id}/cv_builder", json={}).status_code in (404, 405)
+
+
+def test_fit_requires_profile(client):
+    app_id = client.post("/api/applications", json={"company": "A", "position": "B", "job_description": JD}).json()["id"]
+    r = client.post(f"/api/fit/application/{app_id}", json={})
+    assert r.status_code == 422 and "Me" in r.json()["detail"]
+
+
+def test_entries_api_drive_matching(client):
+    client.put("/api/settings", json={"profile": PROFILE})
+    d = client.post("/api/entries/split", json={"section": "experience", "text":
+        "Imaging Analyst, Brain Lab, Basel  Jan 2024 - Present\n- Analysed MRI data from clinical trials in Python\n- Built statistical models in R"}).json()["drafts"]
+    assert d[0]["title"] == "Imaging Analyst" and "MRI" in d[0]["details"]
+    client.post("/api/entries/bulk", json={"entries": d})
+    client.post("/api/entries", json={"section": "education", "title": "MSc Neuroscience", "org": "ETH Zurich"})
+    es = client.get("/api/entries").json()["entries"]
+    assert len(es) == 2
+    assert "Imaging Analyst" in client.get("/api/profile/text").json()["text"]
+    app_id = client.post("/api/applications", json={"company": "Acme", "position": "DS", "job_description": JD}).json()["id"]
+    fit = client.get(f"/api/fit/application/{app_id}").json()["result"]
+    stats = next(r for r in fit["requirements"] if "statistical modelling" in r["text"])
+    assert stats["status"] != "missing" and "statistical models in R" in stats["evidence"]
+    ev = client.get("/api/evidence").json()["items"]
+    assert ev and all(e["source"] == "entry" for e in ev)
+    client.patch(f"/api/entries/{es[0]['id']}", json={"details": "Analysed MRI data\nTaught statistics"})
+    assert any("Taught statistics" in e["text"] for e in client.get("/api/evidence").json()["items"])
+
+
+def test_cv_upload_creates_entries(client, tmp_path):
+    import docx
+    d = docx.Document()
+    for line in MESSY.splitlines():
+        d.add_paragraph(line)
+    path = tmp_path / "cv.docx"
+    d.save(path)
+    r = client.post("/api/profile/cv", files={"file": ("cv.docx", path.read_bytes())}).json()
+    assert r["chars"] > 200 and r["entries_created"] >= 4
+    assert client.post("/api/profile/cv", files={"file": ("cv.exe", b"x")}).status_code == 422
+
+
+def test_chat_ranking_roundtrip(client):
+    setup_profile(client)
+    ids = [client.post("/api/opportunities", json={"company": f"C{i}", "position": "Data Scientist", "job_description": JD}).json()["id"]
+           for i in range(3)]
+    p = client.post("/api/rank/prompt", json={}).json()
+    assert p["count"] == 3 and f"S{ids[0]}" in p["prompt"] and "JSON" in p["prompt"] and "Strasse" not in p["prompt"]
+    reply = ("Here you go:\n```json\n[" + f'{{"code": "S{ids[1]}", "score": 8, "verdict": "Apply", "reason": "Strong imaging match", "missing": "none"}},'
+             f'{{"code": "S{ids[0]}", "score": 4, "verdict": "skip", "reason": "Too senior"}}' + "]\n```")
+    r = client.post("/api/rank/import", json={"text": reply}).json()
+    assert len(r["saved"]) == 2 and r["saved"][1]["verdict"] == "Skip"
+    opps = {o["id"]: o for o in client.get("/api/opportunities").json()}
+    assert opps[ids[1]]["rank"]["score"] == 8 and opps[ids[2]]["rank"] is None
+    lines = client.post("/api/rank/import", json={"text": f"S{ids[2]} – 6/10 – Apply with caveats – needs German"}).json()
+    assert lines["saved"][0]["score"] == 6 and lines["saved"][0]["verdict"] == "Apply with caveats"
+    assert client.post("/api/rank/import", json={"text": "nothing useful"}).status_code == 422
+    pr = client.get(f"/api/prompts/opportunity/{ids[0]}/weakness").json()
+    assert "biggest weakness" in pr["prompt"].lower() and "Data Scientist" in pr["prompt"]
+
+
+# ---------------------------------------------------------------- background reading (fake Ollama)
+class FakeOllama(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
@@ -99,385 +241,76 @@ class FakeOllama(BaseHTTPRequestHandler):
     def do_GET(self):
         self._send({"models": [{"name": "qwen2.5:7b"}]})
 
-    def _stream(self, content: str):
-        """Answer like Ollama with stream=true: one JSON line per small piece, then a final stats line."""
-        self.send_response(200)
-        self.send_header("Content-Type", "application/x-ndjson")
-        self.end_headers()
-        pieces = [content[i:i + 6] for i in range(0, len(content), 6)]
-        for p in pieces:
-            self.wfile.write((json.dumps({"message": {"content": p}, "done": False}) + "\n").encode())
-        self.wfile.write((json.dumps({"done": True, "eval_count": len(pieces), "eval_duration": len(pieces) * 50_000_000,
-                                      "prompt_eval_count": 900, "prompt_eval_duration": 3_000_000_000}) + "\n").encode())
-        self.close_connection = True
-
     def do_POST(self):
         req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         props = req["format"]["properties"]
-        msgs = req["messages"]
-        req["messages"] = [msgs[0], {"role": "user", "content": msgs[0]["content"] + "\n" + msgs[1]["content"]}]
-        if "r" in props:
-            text = req["messages"][1]["content"]
-            import re as _re
-            rids = _re.findall(r"^(R\d+) \[", text, _re.M)
-            cv_line = next(l.split(":")[0] for l in text.splitlines() if "quality-control pipelines" in l)
-            ans = []
-            for i, rid in enumerate(rids):
-                if i == 0:
-                    ans.append({"id": rid, "status": "met", "type": "essential", "cv": [cv_line]})
-                elif i == 1:
-                    ans.append({"id": rid, "status": "met", "type": "essential", "cv": ["C999"]})  # invalid id
-                else:
-                    ans.append({"id": rid, "status": "missing", "cv": []})
-            content = {"summary": "Good technical fit.", "r": ans}
-        elif "critique" in props:
-            text = req["messages"][1]["content"]
-            e = next(l.split(" ")[0] for l in text.splitlines() if "statistical analyses" in l)
-            content = {"reword": [],
-                       "critique": [{"e": e, "issue": "No outcome", "fix": "Say what the models showed", "priority": "high"},
-                                    {"e": "E77", "issue": "x", "fix": "y"}]}
-        elif "questions" in props:
-            content = {"emphasise": [{"e": "E1", "why": "Imaging at scale"}, {"e": "E99", "why": "bogus"}],
-                       "questions": [{"question": "Why this role?"}], "add_if_true": [{"what": "PyTorch"}]}
-        elif "connection" in props:
-            content = {"connection": {"e": "E1", "requirement": "Python", "why": "Direct match"},
-                       "interest": {"reason": "Imaging biomarkers match your cohort MRI work", "basis": "About us"},
-                       "highlight": {"e": "E42", "why": "bogus id"}}
-        elif "outline" in props:
-            content = {"missing": ["Clinical trial exposure"],
-                       "avoid": [{"phrase": "I am passionate", "instead": "Show it"}], "outline": ["Open", "Why", "Proof", "Close"]}
-        elif "fruits" in props:
+        if "fruits" in props:
             content = {"fruits": [{"name": "apple", "fact": "crisp"}]}
-        elif "items" in props:
-            text = req["messages"][1]["content"]
-            ids = [l.split(" ")[0] for l in text.splitlines() if l.startswith("E")]
-            content = {"items": [{"id": i, "kind": "achievement", "did": "Did a thing", "outcome": ""} for i in ids]}
-        elif "emphasise" in props:
-            text = req["messages"][1]["content"]
-            c = next(l.split(":")[0] for l in text.splitlines() if "MRI data" in l)
-            content = {"emphasise": [{"cv": c, "why": "Matches imaging"}, {"cv": "C999", "why": "bogus"}],
-                       "reword": [], "cut": [], "add": [{"what": "PyTorch project, if true", "why": "Preferred"}],
-                       "keywords": ["Python", "PyTorch"]}
-        elif "requirements" in props:
-            content = {"summary": "Good technical fit.", "requirements": [
-                {"text": "Python programming", "type": "essential", "status": "met",
-                 "evidence": "Built automated quality-control pipelines in Python and Bash"},
-                {"text": "Kubernetes in production", "type": "essential", "status": "met",
-                 "evidence": "Deployed Kubernetes clusters at scale"},  # not in the CV: must be caught
-                {"text": "Deep learning", "type": "preferred", "status": "missing", "evidence": ""}]}
-        elif "sections" in props:
-            content = {"headline": "Neuroimaging data scientist", "summary": "…", "advice": ["Lead with MRI work"],
-                       "skills": [{"skill": "Python", "support": "backed"}, {"skill": "Kubernetes", "support": "backed"}],
-                       "sections": [{"title": "Experience", "bullets": [
-                           {"text": "Processed MRI data for a 1,200-person cohort", "support": "backed",
-                            "source": "Processed structural and functional MRI data for a longitudinal cohort of 1,200 participants using Python and FSL."},
-                           {"text": "Led a team of 10 engineers", "support": "backed", "source": "Managed ten engineers"},
-                           {"text": "Experience deploying deep learning models", "support": "gap", "source": "something"}]}]}
         else:
-            content = {"greeting": "Dear team,", "closing": "Best", "paragraphs": [
-                {"text": "I built QC pipelines in Python.", "support": "backed",
-                 "sources": ["Built automated quality-control pipelines in Python and Bash"]},
-                {"text": "I led large teams.", "support": "backed", "sources": ["Led global teams of 50"]}]}
-        if req.get("stream"):
-            self._stream(json.dumps(content))
-        else:
-            self._send({"message": {"content": json.dumps(content)}})
+            content = {"skills": ["MRI analysis", "Python", "R"], "industry": "Pharma & biotech", "seniority": "Mid",
+                       "requirements": ["MSc in neuroscience"], "language": ["English"]}
+        text = json.dumps(content)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.end_headers()
+        for i in range(0, len(text), 8):
+            self.wfile.write((json.dumps({"message": {"content": text[i:i + 8]}, "done": False}) + "\n").encode())
+        self.wfile.write((json.dumps({"done": True, "eval_count": 20, "eval_duration": 1_000_000_000,
+                                      "prompt_eval_count": 500, "prompt_eval_duration": 1_000_000_000}) + "\n").encode())
+        self.close_connection = True
 
 
 @pytest.fixture
 def fake_ollama():
     srv = HTTPServer(("127.0.0.1", 0), FakeOllama)
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"
     srv.shutdown()
 
 
-def test_llm_compact_analysis(fake_ollama):
-    client = Ollama(fake_ollama, "qwen2.5:7b")
-    res = analyse_llm(CV, JD, PROFILE, INF, client, "Switzerland")
-    asked = [r for r in res["requirements"] if not str(r.get("evidence") or "").startswith("Profile:")]
-    assert asked[0]["status"] == "met" and "quality-control" in asked[0]["evidence"] and asked[0]["evidence_verified"]
-    assert asked[1]["status"] == "partial" and not asked[1]["evidence_verified"]  # pointed at a line that doesn't exist
-    assert res["method"] == "ollama" and res["summary"] == "Good technical fit."
-
-
-def test_cv_tips(fake_ollama):
-    from jobtracker.fit import cv_tips_keywords, cv_tips_llm
-    fit = analyse_keywords(CV, JD, PROFILE, INF, "Switzerland")
-    k = cv_tips_keywords(CV, JD, fit, INF)
-    assert k["emphasise"] and any("PyTorch" in a["what"] for a in k["add"])
-    t = cv_tips_llm(CV, JD, fit, INF, Ollama(fake_ollama, "qwen2.5:7b"))
-    assert len(t["emphasise"]) == 1 and "MRI" in t["emphasise"][0]["text"]  # bogus id dropped
-    assert t["missing_keywords"] == ["PyTorch"] and t["keywords"] == ["Python"]
-
-
-def test_target_cv_guard(fake_ollama):
-    client = Ollama(fake_ollama, "qwen2.5:7b")
-    t = target_cv_llm(CV, JD, None, INF, client, "Data Scientist", "Acme")
-    bullets = t["sections"][0]["bullets"]
-    assert bullets[0]["support"] == "backed" and bullets[0]["source_verified"]
-    assert bullets[1]["support"] == "partial"  # "Managed ten engineers" isn't in the CV
-    assert bullets[2]["source"] == ""
-    assert {s["skill"]: s["support"] for s in t["skills"]}["Kubernetes"] == "gap"
-
-
-# ---------------------------------------------------------------- API
-@pytest.fixture
-def client(tmp_path):
-    return TestClient(create_app(Service(tmp_path / "fit.db")))
-
-
-def setup_profile(c, url=None):
-    body = {"cv_text": CV, "profile": PROFILE, "ai_engine": "auto"}
-    if url:
-        body.update(ollama_url=url, ollama_model="qwen2.5:7b")
-    else:
-        body.update(ollama_url="http://127.0.0.1:9")  # nothing listening -> keyword fallback
-    c.put("/api/settings", json=body)
-
-
-def test_fit_api_keyword_fallback(client):
-    setup_profile(client)
-    assert client.get("/api/ai/status").json()["available"] is False
-    app_id = client.post("/api/applications", json={"company": "Acme Bio", "position": "Data Scientist",
-                                                    "location": "Basel", "job_description": JD}).json()["id"]
-    # Saving a job with a description scores it instantly with keywords.
-    assert client.get(f"/api/fit/application/{app_id}").json()["result"]["method"] == "keywords"
-    r = client.post(f"/api/fit/application/{app_id}", json={}).json()
-    assert r["result"]["method"] == "keywords" and r["result"]["fallback_reason"]
-    cached = client.get(f"/api/fit/application/{app_id}").json()
-    assert cached["stale"] is False
-    client.patch(f"/api/applications/{app_id}", json={"job_description": JD + "\n- Knowledge of SQL is required"})
-    after = client.get(f"/api/fit/application/{app_id}").json()  # re-scored automatically
-    assert after["stale"] is False and any("SQL" in r["text"] for r in after["result"]["requirements"])
-    guide = client.post(f"/api/docs/application/{app_id}/target_cv", json={}).json()["result"]
-    assert guide["method"] == "keywords" and guide["sections"]
-    letter = client.post(f"/api/docs/application/{app_id}/cover_letter", json={}).json()["result"]
-    assert letter["method"] == "template"
-    assert client.post(f"/api/fit/application/{app_id}", json={"engine": "ollama"}).status_code == 503
-
-
-def test_fit_requires_cv(client):
-    app_id = client.post("/api/applications", json={"company": "A", "position": "B", "job_description": JD}).json()["id"]
-    r = client.post(f"/api/fit/application/{app_id}", json={})
-    assert r.status_code == 422 and "CV" in r.json()["detail"]
-
-
-def test_fit_api_with_ollama(client, fake_ollama):
+def test_background_reading_of_descriptions(client, fake_ollama):
     setup_profile(client, fake_ollama)
-    st = client.get("/api/ai/status").json()
-    assert st["available"] and st["model"] == "qwen2.5:7b"
-    res = client.post("/api/fit/check", json={"company": "Acme", "position": "DS", "location": "Basel", "job_description": JD}).json()
-    assert res["method"] == "ollama"
-
-
-def test_opportunities_flow(client):
-    setup_profile(client)
-    oid = client.post("/api/opportunities", json={"company": "Acme Bio", "position": "Data Scientist", "location": "Zurich",
-                                                  "job_description": JD, "deadline": "2099-01-01"}).json()["id"]
-    client.post("/api/opportunities", json={"company": "Other", "position": "Analyst", "job_description": "short"})
-    b = client.post("/api/fit/batch", json={"kind": "opportunity"}).json()
-    assert b["analysed"] == 0 and b["skipped"] == 2  # already scored on save; one has no description
-    d = client.get("/api/discover").json()
-    assert d["opportunities"][0]["id"] == oid and d["opportunities"][0]["fit"]["score"] is not None
-    app_id = client.post(f"/api/opportunities/{oid}/apply").json()["application_id"]
-    assert client.get(f"/api/fit/application/{app_id}").json()["result"] is not None
-    assert all(o["id"] != oid for o in client.get("/api/opportunities").json())
-    assert client.get(f"/api/applications/{app_id}").json()["job_description"] == JD
-
-
-def test_cv_upload_docx(client, tmp_path):
-    import docx
-    d = docx.Document()
-    for line in CV.splitlines():
-        d.add_paragraph(line)
-    path = tmp_path / "cv.docx"
-    d.save(path)
-    r = client.post("/api/profile/cv", files={"file": ("cv.docx", path.read_bytes())}).json()
-    assert r["chars"] > 200 and "Neuroimaging" in r["text"]
-    assert client.post("/api/profile/cv", files={"file": ("cv.exe", b"x")}).status_code == 422
-
-
-def test_ai_queue(client, fake_ollama):
-    import time
-    setup_profile(client, fake_ollama)
-    ids = [client.post("/api/opportunities", json={"company": f"C{i}", "position": "Data Scientist", "job_description": JD}).json()["id"]
-           for i in range(3)]
-    q = client.post("/api/ai/queue", json={"items": [{"kind": "opportunity", "ref_id": i} for i in ids]}).json()
-    assert q["total"] == 3
-    for _ in range(50):
-        q = client.get("/api/ai/queue").json()
-        if q["done"] == 3:
-            break
+    for i in range(3):
+        client.post("/api/applications", json={"company": f"C{i}", "position": "Data Scientist", "job_description": JD})
+    st = client.get("/api/digest").json()
+    assert st["total"] == 3 and st["done"] == 0
+    assert client.post("/api/digest/run").json()["queued_now"] == 3
+    end = time.time() + 15
+    while time.time() < end and client.get("/api/digest").json()["done"] < 3:
         time.sleep(0.1)
-    assert q["done"] == 3 and not q["errors"]
-    assert all(o["fit"]["method"] == "ollama" for o in client.get("/api/opportunities").json())
-    tips = client.post(f"/api/docs/opportunity/{ids[0]}/cv_tips", json={}).json()["result"]
-    assert tips["method"] == "ollama" and tips["emphasise"]
+    st = client.get("/api/digest").json()
+    assert st["done"] == 3 and st["seconds_each"]
+    rep = client.get("/api/career/skills").json()
+    assert rep["digests"] == 3 and any(s["skill"].lower() == "mri analysis" for s in rep["skills"])
+    assert client.post("/api/digest/run").json()["queued_now"] == 0  # cached by content
 
 
-def test_ai_queue_needs_ollama(client):
-    setup_profile(client)
-    assert client.post("/api/ai/queue", json={"items": [{"kind": "opportunity", "ref_id": 1}]}).status_code == 503
-
-
-def test_evidence_and_builders_rules(client):
-    setup_profile(client)
-    ev = client.get("/api/evidence").json()
-    assert ev["has_cv"] and ev["counts"]["achievement"] >= 2 and ev["counts"]["qualification"] == 2
-    mri = next(e for e in ev["items"] if "MRI data" in e["text"])
-    assert "1,200 participants" in mri["metrics"] and mri["context"].startswith("Research Assistant")
-    # Edits survive a rebuild; manual evidence is kept.
-    client.patch(f"/api/evidence/{mri['id']}", json={"confirmed": True, "note": "I wrote the pipeline"})
-    client.post("/api/evidence", json={"text": "Taught a Python workshop for 30 students"})
-    ev2 = client.post("/api/evidence/rebuild").json()["items"]
-    again = next(e for e in ev2 if "MRI data" in e["text"])
-    assert again["confirmed"] and again["note"] == "I wrote the pipeline"
-    assert any(e["source"] == "manual" for e in ev2)
-    app_id = client.post("/api/applications", json={"company": "Acme Bio", "position": "Data Scientist",
-                                                    "location": "Basel", "job_description": JD}).json()["id"]
-    cvb = client.post(f"/api/docs/application/{app_id}/cv_builder", json={}).json()["result"]
-    assert cvb["method"] == "rules" and cvb["emphasise"] and cvb["priorities"]
-    assert all({"text", "issue", "fix"} <= set(c) for c in cvb["critique"])
-    assert "Lead with these lines" in cvb["brief"]
-    lb = client.post(f"/api/docs/application/{app_id}/letter_builder", json={}).json()["result"]
-    assert lb["connection"]["text"] and lb["highlight"] and lb["avoid"] and lb["outline"]
-    assert client.get(f"/api/docs/application/{app_id}/cv_builder").json()["stale"] is False
-    client.patch(f"/api/evidence/{again['id']}", json={"note": "changed"})
-    assert client.get(f"/api/docs/application/{app_id}/cv_builder").json()["stale"] is True
-
-
-def test_builders_ai(client, fake_ollama):
-    setup_profile(client, fake_ollama)
-    app_id = client.post("/api/applications", json={"company": "Acme Bio", "position": "Data Scientist",
-                                                    "job_description": JD}).json()["id"]
-    first = client.post(f"/api/docs/application/{app_id}/cv_builder", json={"engine": "ollama"}).json()
-    assert first["job"]["status"] in ("queued", "running", "done") and first["result"]  # rules shown meanwhile
-    wait_job(client, first["job"]["id"])
-    cvb = client.get(f"/api/docs/application/{app_id}/cv_builder").json()["result"]
-    assert cvb["method"] == "ollama" and not cvb["in_progress"]
-    assert cvb["sources"]["critique"] == "ai" and cvb["sources"]["emphasise"] == "ai"  # both parts used
-    assert len(cvb["critique"]) == 1 and "statistical" in cvb["critique"][0]["text"]  # bogus id dropped
-    assert len(cvb["emphasise"]) == 1
-    job = client.post(f"/api/docs/application/{app_id}/letter_builder", json={"engine": "ollama"}).json()["job"]
-    wait_job(client, job["id"])
-    lb = client.get(f"/api/docs/application/{app_id}/letter_builder").json()["result"]
-    assert lb["interest"]["reason"].startswith("Imaging") and lb["connection"]["why"] == "Direct match"
-    assert lb["highlight"]["why"] != "bogus id"  # invalid id -> rule-based highlight kept
-    job = wait_job(client, client.post("/api/evidence/enrich").json()["job"]["id"])
-    assert job["status"] == "done"
-    assert client.get("/api/evidence").json()["enriched"] >= 5
-    speed = client.get("/api/ai/status").json()["speed"]
-    assert speed and speed["gen_tps"] > 0  # measured from the streamed answer
-
-
-def wait_job(client, jid, timeout=15):
-    import time as _t
-    end = _t.time() + timeout
-    while _t.time() < end:
-        j = client.get(f"/api/ai/jobs/{jid}").json()
-        if j["status"] not in ("queued", "running"):
-            assert j["status"] == "done", j
-            return j
-        _t.sleep(0.05)
-    raise AssertionError("AI job didn't finish")
-
-
-# ---------------------------------------------------------------- messy CVs and AI transparency
-MESSY = (Path(__file__).parent / "fixtures" / "cv_messy.txt").read_text()
-
-
-def messy_evidence():
-    from jobtracker.evidence import extract
-    cv = MESSY.replace("EDUCATION\n", "EDUCATION\nAddress: Phone: Email: 12 Example Strasse +41 79 123 45 67 jamie@example.com\n", 1)
-    return [{**r, "id": i + 1, "hidden": r.get("hidden", False)} for i, r in enumerate(extract(cv, INF))]
-
-
-def test_messy_cv_extraction():
-    ev = messy_evidence()
-    personal = [e for e in ev if e["kind"] == "personal"]
-    assert personal and all(e["hidden"] for e in personal)
-    assert any(e["kind"] == "coursework" for e in ev)
-    thesis = next(e for e in ev if e["text"].startswith("Investigated"))
-    assert "University of Zurich" not in thesis["text"]  # glued heading removed
-    tested = next(e for e in ev if e["text"].startswith("Tested scripts"))
-    assert "Intern" not in tested["text"]  # date range + next heading removed
-    assert any(e.get("duplicate_of") for e in ev if e["text"].startswith("Develop incentive"))
-
-
-def test_builders_ignore_personal_and_coursework():
-    from jobtracker.builder import cv_builder_rules, job_profile
-    jd = (Path(__file__).parent / "fixtures" / "jd_digital.txt").read_text()
-    job = job_profile(jd, INF)
-    assert not any(":" == p.strip()[-1] for p in job["priorities"])
-    assert not any("Fixed Term" in p for p in job["essential"] + job["priorities"])
-    assert "exampla" not in " ".join(job["themes"]).lower()
-    res = cv_builder_rules(messy_evidence(), job, None, MESSY)
-    texts = [x["text"] for k in ("critique", "emphasise", "cut", "reword") for x in res[k]]
-    assert not any("@" in t or "Permit" in t or "modules" in t for t in texts)
-    dup = [t for t in texts if t.startswith("Develop incentive")]
-    assert not dup  # near-duplicate never shown alongside the original
-
-
-class StubClient:
-    model = "stub"
-
-    def __init__(self, reply):
-        self.reply = reply
-
-    def chat_json(self, system, user, schema, **kw):
-        return self.reply
-
-
-def test_ai_ids_are_resolved_flexibly_and_fallback_is_labelled():
-    from jobtracker.builder import cv_builder_ai, job_profile
-    jd = (Path(__file__).parent / "fixtures" / "jd_digital.txt").read_text()
-    job, ev = job_profile(jd, INF), messy_evidence()
-    good = {"critique": [{"e": "e1: something", "issue": "Hides your part (see E1)", "fix": "Name the tool", "priority": "high"}],
-            "emphasise": [{"e": 2, "why": "fits"}], "reword": [], "questions": [], "add_if_true": []}
-    r = cv_builder_ai(ev, job, None, MESSY, StubClient(good))
-    assert r["method"] == "ollama" and r["sources"]["critique"] == "ai" and r["sources"]["reword"] == "rules"
-    assert "E1" not in r["critique"][0]["issue"]  # stray id replaced by a quote
-    bad = {"critique": [{"e": "E99", "issue": "x", "fix": "y", "priority": "low"}], "emphasise": [], "reword": [],
-           "questions": [], "add_if_true": []}
-    r2 = cv_builder_ai(ev, job, None, MESSY, StubClient(bad))
-    assert r2["method"] == "rules" and "couldn't be matched" in r2["ai_note"]
+def test_digest_needs_ollama(client):
+    assert client.post("/api/digest/run").status_code == 503
 
 
 def test_truncated_json_is_repaired():
     from jobtracker.llm import parse_loose
-    cut = '{"critique": [{"e": "E1", "issue": "Vague", "fix": "Name it", "priority": "high"}, {"e": "E2", "iss'
-    assert parse_loose(cut) == {"critique": [{"e": "E1", "issue": "Vague", "fix": "Name it", "priority": "high"}]}
+    cut = '{"skills": ["SQL", "R"], "industry": "Pharma", "requirements": ["MSc", "Pyth'
+    assert parse_loose(cut)["skills"] == ["SQL", "R"]
 
 
-def test_partial_results_and_cancel():
-    import time as _t
+def test_job_queue_priority_and_cancel():
     from jobtracker.aijobs import AIJobs
-    from jobtracker.builder import cv_builder_ai, job_profile
-    jd = (Path(__file__).parent / "fixtures" / "jd_digital.txt").read_text()
-    reply = {"critique": [{"e": "E1", "issue": "Hides your part", "fix": "Name the tool", "priority": "high"}],
-             "reword": [], "emphasise": [{"e": "E2", "why": "fits"}], "questions": [], "add_if_true": []}
-    seen = []
-    r = cv_builder_ai(messy_evidence(), job_profile(jd, INF), None, MESSY, StubClient(reply), on_partial=seen.append)
-    assert seen and seen[0]["in_progress"] and seen[0]["sources"]["emphasise"] == "pending"
-    assert seen[0]["sources"]["critique"] == "ai" and not r["in_progress"]
-
     jobs = AIJobs()
 
     def slow(progress):
         for _ in range(200):
-            _t.sleep(0.01)
+            time.sleep(0.01)
             progress.token()
     a = jobs.submit("a", "slow", slow)
     b = jobs.submit("b", "waiting", lambda p: 1, priority=5)
     c = jobs.submit("c", "urgent", lambda p: 2, priority=0)
-    assert jobs.submit("a", "dupe", slow)["id"] == a["id"]  # same task isn't queued twice
-    assert jobs.get(c["id"])["ahead"] == 1 and jobs.get(b["id"])["ahead"] == 2  # interactive jumps the batch
-    _t.sleep(0.1)
+    assert jobs.submit("a", "dupe", slow)["id"] == a["id"]
+    assert jobs.get(c["id"])["ahead"] == 1 and jobs.get(b["id"])["ahead"] == 2
+    time.sleep(0.1)
     jobs.cancel(a["id"])
-    end = _t.time() + 5
-    while _t.time() < end and jobs.get(b["id"])["status"] != "done":
-        _t.sleep(0.02)
+    end = time.time() + 5
+    while time.time() < end and jobs.get(b["id"])["status"] != "done":
+        time.sleep(0.02)
     assert jobs.get(a["id"])["status"] == "cancelled" and jobs.get(c["id"])["status"] == "done"
-    assert jobs.get(b["id"])["status"] == "done" and jobs.get(c["id"])["finished"] <= jobs.get(b["id"])["finished"]

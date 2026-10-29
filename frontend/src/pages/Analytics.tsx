@@ -1,48 +1,48 @@
-import { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Layer, Rectangle, ResponsiveContainer, Sankey, Tooltip, XAxis, YAxis } from "recharts";
+import { useState } from "react";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Info } from "lucide-react";
 import { type Dict } from "../api";
 import { useApi, useApp } from "../store";
 import { CHART, cls, OUTCOME_COLORS, pct } from "../lib";
+
+const TOOLTIP = { borderRadius: 8, border: "1px solid rgb(var(--line))", background: "rgb(var(--surface))", color: "rgb(var(--ink))", fontSize: 12 };
 import { FilterBar } from "../components/FilterBar";
-import { EmptyState, PageHeader, SectionTitle, Select, Skeleton } from "../components/ui";
+import { EmptyState, PageHeader, SectionTitle, Select, Skeleton, Tabs } from "../components/ui";
+import { Companies } from "../components/Companies";
+import { MapView } from "../components/MapView";
+import { useSearchParams } from "react-router-dom";
+import { BarChart3, Building2, Map as MapIcon } from "lucide-react";
 
 const VERDICT: Record<string, { color: string; bg: string }> = {
-  Strength: { color: "#0a7a53", bg: "#e8f6f0" }, Promising: { color: "#0a7a53", bg: "#f1f9f5" },
-  "About average": { color: "#5d6676", bg: "#f2f3f5" }, "Below average": { color: "#a35f00", bg: "#fdf4e6" },
-  "Weak spot": { color: "#b42318", bg: "#fdecea" }, "Too few to tell": { color: "#9aa2b1", bg: "#f6f7f9" },
+  Strength: { color: "rgb(var(--ok))", bg: "rgb(var(--ok-soft))" }, Promising: { color: "rgb(var(--ok))", bg: "rgb(var(--ok-soft) / .55)" },
+  "About average": { color: "rgb(var(--ink-muted))", bg: "rgb(var(--neutral-soft))" }, "Below average": { color: "rgb(var(--warn))", bg: "rgb(var(--warn-soft))" },
+  "Weak spot": { color: "rgb(var(--danger))", bg: "rgb(var(--danger-soft))" }, "Too few to tell": { color: "rgb(var(--ink-faint))", bg: "rgb(var(--canvas))" },
 };
-const STAGE_NODE: Record<string, string> = {
-  Applied: "#3d6fd6", Screening: "#7f5bd1", Interview: "#d97f06", "Final interview": "#c06a00", Offer: "#0e9a69",
-  Accepted: "#0a7a53", Rejected: "#b9bfca", Ghosted: "#7c8494", Withdrawn: "#dfe2e8", "Awaiting reply": "#9db6e0",
-};
-
 export default function Analytics() {
   const { filterQuery, meta } = useApp();
   const [metric, setMetric] = useState("positive");
   const [dim, setDim] = useState("role_area");
-  const [rows, setRows] = useState("role_area");
-  const [cols, setCols] = useState("seniority");
-  const { data, loading } = useApi<Dict>(`/api/analytics${filterQuery({ metric, dim, rows, cols })}`);
+  const { data, loading } = useApi<Dict>(`/api/analytics${filterQuery({ metric, dim })}`);
   const dims = meta?.dimensions ?? {};
   const metrics = meta?.metrics ?? {};
+  const [params, setParams] = useSearchParams();
+  const tab = (params.get("tab") as "overview" | "companies" | "map") || "overview";
 
   return (
     <div>
       <PageHeader title="Analytics" subtitle="How your applications convert, and which kinds of roles work best for you." />
-      <div className="mb-6"><FilterBar /></div>
-      {loading && !data ? <div className="grid grid-cols-3 gap-4">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-32" />)}</div>
-        : !data || data.empty ? <div className="card"><EmptyState title="No applications match these filters">Clear some filters to see your analytics.</EmptyState></div>
+      <div className="mb-4"><FilterBar /></div>
+      <div className="mb-6"><Tabs value={tab} onChange={(t) => setParams(t === "overview" ? {} : { tab: t }, { replace: true })} tabs={[
+        { id: "overview", label: <span className="inline-flex items-center gap-1.5"><BarChart3 size={14} />Conversion & roles</span> },
+        { id: "companies", label: <span className="inline-flex items-center gap-1.5"><Building2 size={14} />Companies</span> },
+        { id: "map", label: <span className="inline-flex items-center gap-1.5"><MapIcon size={14} />Map</span> }]} /></div>
+      {tab === "companies" ? <Companies /> : tab === "map" ? <MapView /> : loading && !data ? <div className="grid grid-cols-3 gap-4">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-32" />)}</div>
+        : !data || data.empty ? <div className="card"><EmptyState art="chart" title="No applications match these filters">Clear some filters to see your analytics.</EmptyState></div>
         : (
           <div className="space-y-8">
             <Conversion c={data.conversion} />
-            <div className="grid xl:grid-cols-2 gap-5">
-              <Funnel funnel={data.funnel} />
-              <Flow links={data.flow} />
-            </div>
-            <RolesTable data={data} dim={dim} setDim={setDim} dims={dims} />
-            <Scorecard data={data} metric={metric} setMetric={setMetric} metrics={metrics} dim={dim} setDim={setDim} dims={dims}
-              rows={rows} cols={cols} setRows={setRows} setCols={setCols} />
+            <Funnel funnel={data.funnel} />
+            <Scorecard data={data} metric={metric} setMetric={setMetric} metrics={metrics} dim={dim} setDim={setDim} dims={dims} />
             <Trends data={data} />
             <Coverage coverage={data.coverage} />
           </div>
@@ -128,94 +128,8 @@ function Funnel({ funnel }: { funnel: Dict[] }) {
   );
 }
 
-function Flow({ links }: { links: Dict[] }) {
-  const graph = useMemo(() => {
-    const names = Array.from(new Set(links.flatMap((l) => [l.source, l.target])));
-    return { nodes: names.map((n) => ({ name: n })), links: links.map((l) => ({ source: names.indexOf(l.source), target: names.indexOf(l.target), value: l.count })) };
-  }, [links]);
-  return (
-    <section className="card p-5">
-      <SectionTitle>Where applications go</SectionTitle>
-      {links.length === 0 ? <p className="text-ink-muted">No data yet.</p> : (
-        <div className="h-[290px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <Sankey data={graph} nodePadding={22} nodeWidth={10} margin={{ left: 4, right: 110, top: 8, bottom: 8 }}
-              link={{ stroke: "#9aa2b1", strokeOpacity: 0.22 }} node={<SankeyNode />}>
-              <Tooltip formatter={(v: number) => [`${v} applications`, ""]} />
-            </Sankey>
-          </ResponsiveContainer>
-        </div>
-      )}
-      <p className="text-[12px] text-ink-muted mt-2">Record each stage as it happens to see exactly where applications stop.</p>
-    </section>
-  );
-}
-
-function SankeyNode(props: any) {
-  const { x, y, width, height, payload } = props;
-  const color = STAGE_NODE[payload.name] ?? "#9aa2b1";
-  return (
-    <Layer>
-      <Rectangle x={x} y={y} width={width} height={height} fill={color} radius={2} />
-      <text x={x + width + 6} y={y + height / 2} dy="0.35em" fontSize={12} fill="#3b4556">{payload.name} <tspan fill="#9aa2b1" fontFamily="JetBrains Mono Variable, monospace">{payload.value}</tspan></text>
-    </Layer>
-  );
-}
-
-// ------------------------------------------------------- rates by dimension
-function RolesTable({ data, dim, setDim, dims }: { data: Dict; dim: string; setDim: (d: string) => void; dims: Record<string, string> }) {
-  const [all, setAll] = useState(false);
-  const allRows: Dict[] = data.by_dim;
-  const rows = all ? allRows : allRows.slice(0, 12);
-  const max = Math.max(...rows.map((r) => r.response_rate ?? 0), 0.01);
-  return (
-    <section className="card p-5">
-      <SectionTitle aside={<Select className="h-8 w-56 text-[12.5px]" value={dim} onChange={setDim}
-        options={Object.entries(dims).map(([value, label]) => ({ value, label }))} />}>
-        Response, interview and offer rate by {dims[dim]?.toLowerCase() ?? dim}
-      </SectionTitle>
-      <div className="overflow-x-auto scroll-thin">
-        <table className="w-full text-[13px] min-w-[720px]">
-          <thead>
-            <tr className="text-ink-muted text-[12px]">
-              <th className="text-left font-medium py-2">{dims[dim]}</th>
-              <th className="text-right font-medium py-2 px-2">Applied</th>
-              <th className="text-left font-medium py-2 px-3 w-[28%]">Response rate</th>
-              <th className="text-right font-medium py-2 px-2">Interviews</th>
-              <th className="text-right font-medium py-2 px-2">Interview rate</th>
-              <th className="text-right font-medium py-2 px-2">Offers</th>
-              <th className="text-right font-medium py-2 px-2">Offer rate</th>
-              <th className="text-right font-medium py-2 pl-2">Interview → offer</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.value} className={cls("border-t border-line", r.applied < 5 && "text-ink-muted")}>
-                <td className="py-2 pr-2 font-medium">{r.value}{r.applied < 5 && <span className="text-[11px] text-ink-faint font-normal"> · few</span>}</td>
-                <td className="py-2 px-2 text-right num">{r.applied}</td>
-                <td className="py-2 px-3">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-2 rounded-full bg-canvas overflow-hidden"><div className="h-full rounded-full bg-[#3d6fd6]" style={{ width: `${(r.response_rate / max) * 100}%` }} /></div>
-                    <span className="num text-[12px] w-10 text-right">{pct(r.response_rate)}</span>
-                  </div>
-                </td>
-                <td className="py-2 px-2 text-right num">{r.interviews}</td>
-                <td className="py-2 px-2 text-right num">{pct(r.interview_rate)}</td>
-                <td className="py-2 px-2 text-right num">{r.offers}</td>
-                <td className="py-2 px-2 text-right num font-medium">{pct(r.offer_rate)}</td>
-                <td className="py-2 pl-2 text-right num">{r.interview_to_offer === null ? "—" : pct(r.interview_to_offer)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {allRows.length > 12 && <button className="btn-ghost btn-sm mt-2" onClick={() => setAll(!all)}>{all ? "Show top 12" : `Show all ${allRows.length}`}</button>}
-    </section>
-  );
-}
-
 // ---------------------------------------------------------------- scorecard
-function Scorecard({ data, metric, setMetric, metrics, dim, setDim, dims, rows, cols, setRows, setCols }: Dict) {
+function Scorecard({ data, metric, setMetric, metrics, dim, setDim, dims }: Dict) {
   const [allBars, setAllBars] = useState(false);
   const scAll: Dict[] = data.scorecard ?? [];
   const sc: Dict[] = allBars ? scAll : [...scAll].sort((a, b) => b.applied - a.applied).slice(0, 15).sort((a, b) => b.smoothed - a.smoothed);
@@ -223,7 +137,7 @@ function Scorecard({ data, metric, setMetric, metrics, dim, setDim, dims, rows, 
   const maxHigh = Math.max(...sc.map((s) => s.ci_high), avg, 0.05);
   const segLine = (r: Dict) => (
     <li key={`${r.dimension}-${r.value}`} className="flex items-center gap-2 py-1.5">
-      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded" style={{ color: VERDICT[r.verdict]?.color, background: VERDICT[r.verdict]?.bg }}>{r.verdict}</span>
+      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap" style={{ color: VERDICT[r.verdict]?.color, background: VERDICT[r.verdict]?.bg }}>{r.verdict}</span>
       <span className="text-[13px] min-w-0 truncate"><span className="text-ink-muted">{r.dimension_label}:</span> <b className="font-medium">{r.value}</b></span>
       <span className="ml-auto num text-[12px] text-ink-muted whitespace-nowrap">{r.successes}/{r.applied} · {r.lift >= 0 ? "+" : ""}{Math.round(r.lift * 100)}%</span>
     </li>
@@ -232,11 +146,11 @@ function Scorecard({ data, metric, setMetric, metrics, dim, setDim, dims, rows, 
     <section className="card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-[15px] font-semibold">Role Success Scorecard</h2>
-          <p className="text-[12.5px] text-ink-muted max-w-2xl">Your personal success rate for each kind of role. Small groups are pulled towards your average so a lucky 1-of-2 doesn't outrank 5-of-30.</p>
+          <h2 className="text-[15px] font-semibold">What works for you</h2>
+          <p className="text-[12.5px] text-ink-muted max-w-2xl">Your success rate by job family, seniority, industry, location and more. Pick what counts as success; small groups are pulled towards your average so a lucky 1-of-2 doesn't outrank 5-of-30.</p>
         </div>
-        <label className="flex items-center gap-2 text-[12.5px] text-ink-muted">Count as success
-          <Select className="h-8 w-[290px] text-[12.5px]" value={metric} onChange={setMetric}
+        <label className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-muted w-full sm:w-auto">Count as success
+          <Select className="h-8 w-full sm:w-[290px] text-[12.5px]" value={metric} onChange={setMetric}
             options={Object.entries(metrics).map(([label, value]) => ({ value: value as string, label }))} />
         </label>
       </div>
@@ -246,20 +160,20 @@ function Scorecard({ data, metric, setMetric, metrics, dim, setDim, dims, rows, 
         <div className="rounded-lg bg-canvas p-3"><div className="text-[12px] text-ink-muted">Your average</div><div className="num text-[20px] font-semibold">{pct(avg, 1)}</div></div>
       </div>
       {data.successes < 10 && (
-        <div className="flex gap-2 p-3 rounded-lg bg-[#fdf4e6] text-[#7a4a00] text-[12.5px] mb-5">
+        <div className="flex gap-2 p-3 rounded-lg bg-warn-soft text-warn-strong text-[12.5px] mb-5">
           <Info size={15} className="shrink-0 mt-0.5" />
           Only {data.successes} successes so far, so differences are hints rather than proof. Try "Any reply" for a bigger sample.
         </div>
       )}
       <div className="grid lg:grid-cols-2 gap-6 mb-6">
-        <div><div className="eyebrow mb-1">Where you do best</div><ul className="divide-y divide-line">{data.strengths.length ? data.strengths.map(segLine) : <li className="text-ink-muted text-[13px] py-2">Nothing stands out yet.</li>}</ul></div>
-        <div><div className="eyebrow mb-1">Where you struggle</div><ul className="divide-y divide-line">{data.gaps.length ? data.gaps.map(segLine) : <li className="text-ink-muted text-[13px] py-2">Nothing stands out yet.</li>}</ul></div>
+        <div className="min-w-0"><div className="eyebrow mb-1">Where you do best</div><ul className="divide-y divide-line">{data.strengths.length ? data.strengths.map(segLine) : <li className="text-ink-muted text-[13px] py-2">Nothing stands out yet.</li>}</ul></div>
+        <div className="min-w-0"><div className="eyebrow mb-1">Where you struggle</div><ul className="divide-y divide-line">{data.gaps.length ? data.gaps.map(segLine) : <li className="text-ink-muted text-[13px] py-2">Nothing stands out yet.</li>}</ul></div>
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-4">
         {Object.entries(dims).map(([k, label]) => (
           <button key={k} onClick={() => setDim(k)}
-            className={cls("h-7 px-2.5 rounded-full text-[12px] font-medium border transition", dim === k ? "bg-ink text-white border-ink" : "bg-white border-line text-ink-soft hover:bg-canvas")}>{label as string}</button>
+            className={cls("h-7 px-2.5 rounded-full text-[12px] font-medium border transition", dim === k ? "bg-ink text-white border-ink" : "bg-surface border-line text-ink-soft hover:bg-canvas")}>{label as string}</button>
         ))}
       </div>
       <div className="space-y-1.5">
@@ -275,7 +189,7 @@ function Scorecard({ data, metric, setMetric, metrics, dim, setDim, dims, rows, 
                 <div className="absolute top-0 bottom-0 w-px bg-brand" style={{ left: `${(avg / maxHigh) * 100}%` }} />
               </div>
               <div className="flex items-center justify-end gap-2 text-[12px]">
-                <span className="num text-ink-soft">{s.successes}/{s.applied} · {pct(s.rate)}</span>
+                <span className="num text-ink-soft" title={`${s.successes} of ${s.applied}`}>{s.successes}/{s.applied} · {pct(s.rate)}</span>
                 <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap" style={{ color: v.color, background: v.bg }}>{s.verdict}</span>
               </div>
             </div>
@@ -289,58 +203,7 @@ function Scorecard({ data, metric, setMetric, metrics, dim, setDim, dims, rows, 
         <span>Faded bars: fewer than 5 applications</span>
       </div>
 
-      <div className="mt-8 pt-6 border-t border-line">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <h3 className="text-[14px] font-semibold">Combine two dimensions</h3>
-          <div className="flex items-center gap-2">
-            <Select className="h-8 w-48 text-[12.5px]" value={rows} onChange={setRows} options={Object.entries(dims).map(([value, label]) => ({ value, label: label as string }))} />
-            <span className="text-ink-faint">×</span>
-            <Select className="h-8 w-48 text-[12.5px]" value={cols} onChange={setCols} options={Object.entries(dims).map(([value, label]) => ({ value, label: label as string }))} />
-          </div>
-        </div>
-        {rows === cols ? <p className="text-ink-muted text-[13px]">Pick two different dimensions.</p> : <Heatmap hm={data.heatmap} />}
-      </div>
     </section>
-  );
-}
-
-function Heatmap({ hm: full }: { hm: Dict }) {
-  if (!full.rows.length) return <p className="text-ink-muted text-[13px]">No data.</p>;
-  // Keep the 12 largest rows and 8 largest columns so the grid stays readable.
-  const rowTot = full.rows.map((_: string, i: number) => full.n[i].reduce((a: number, b: number | null) => a + (b ?? 0), 0));
-  const colTot = full.cols.map((_: string, j: number) => full.n.reduce((a: number, r: (number | null)[]) => a + (r[j] ?? 0), 0));
-  const ri = rowTot.map((t: number, i: number) => [t, i]).sort((a: number[], b: number[]) => b[0] - a[0]).slice(0, 12).map((x: number[]) => x[1]).sort((a: number, b: number) => a - b);
-  const ci = colTot.map((t: number, j: number) => [t, j]).sort((a: number[], b: number[]) => b[0] - a[0]).slice(0, 8).map((x: number[]) => x[1]).sort((a: number, b: number) => a - b);
-  const hm = { rows: ri.map((i: number) => full.rows[i]), cols: ci.map((j: number) => full.cols[j]),
-    rate: ri.map((i: number) => ci.map((j: number) => full.rate[i][j])), n: ri.map((i: number) => ci.map((j: number) => full.n[i][j])) };
-  const trimmed = hm.rows.length < full.rows.length || hm.cols.length < full.cols.length;
-  const max = Math.max(0.01, ...hm.rate.flat().filter((x: number | null) => x !== null));
-  return (
-    <div className="overflow-x-auto scroll-thin">
-      <table className="text-[12px] border-separate border-spacing-1">
-        <thead><tr><th />{hm.cols.map((c: string) => <th key={c} className="font-medium text-ink-muted px-1 pb-1 max-w-[110px] align-bottom text-center leading-tight">{c}</th>)}</tr></thead>
-        <tbody>
-          {hm.rows.map((r: string, i: number) => (
-            <tr key={r}>
-              <th className="text-left font-medium text-ink-soft pr-2 whitespace-nowrap max-w-[220px] truncate">{r}</th>
-              {hm.cols.map((c: string, j: number) => {
-                const v = hm.rate[i][j], n = hm.n[i][j];
-                if (v === null || !n) return <td key={c} className="w-[92px] h-11 rounded-md bg-canvas/60" />;
-                const a = 0.08 + 0.85 * (v / max);
-                return (
-                  <td key={c} className="w-[92px] h-11 rounded-md text-center align-middle" style={{ background: `rgba(14,122,92,${a})`, color: a > 0.5 ? "white" : "#18212f" }}
-                    title={`${r} × ${c}: ${pct(v)} of ${n}`}>
-                    <div className="num font-semibold">{pct(v)}</div>
-                    <div className="text-[10px] opacity-80 num">n={n}</div>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="text-[11.5px] text-ink-muted mt-2">Cells with few applications are noisy; check n before drawing conclusions.{trimmed && " Showing the largest groups only; filter to see others."}</p>
-    </div>
   );
 }
 
@@ -358,7 +221,7 @@ function Trends({ data }: { data: Dict }) {
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: CHART.axis }} tickLine={false} axisLine={{ stroke: CHART.grid }}
                 tickFormatter={(m: string) => new Date(m + "-01").toLocaleDateString("en-GB", { month: "short" })} />
               <YAxis tick={{ fontSize: 11, fill: CHART.axis }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip cursor={{ fill: "#f6f7f9" }} contentStyle={{ borderRadius: 8, border: "1px solid #e4e7ec", fontSize: 12 }} />
+              <Tooltip cursor={{ fill: CHART.grid }} contentStyle={TOOLTIP} />
               {outcomes.map((o, i) => <Bar key={o} dataKey={o} stackId="a" fill={OUTCOME_COLORS[o]} radius={i === outcomes.length - 1 ? [4, 4, 0, 0] : 0} maxBarSize={36} />)}
             </BarChart>
           </ResponsiveContainer>

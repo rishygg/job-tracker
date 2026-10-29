@@ -48,7 +48,7 @@ export function Drawer({ open, onClose, children }: { open: boolean; onClose: ()
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-ink/20" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <aside className="anim-slide h-full w-full max-w-[760px] bg-white shadow-pop flex flex-col">{children}</aside>
+      <aside className="anim-slide h-full w-full max-w-[760px] bg-surface shadow-pop flex flex-col">{children}</aside>
     </div>
   );
 }
@@ -75,7 +75,7 @@ export function Segmented<T extends string>({ options, value, onChange }:
       {options.map((o) => (
         <button key={o.id} onClick={() => onChange(o.id)}
           className={cls("h-7 px-3 rounded-md text-[12.5px] font-medium inline-flex items-center gap-1.5 transition",
-            value === o.id ? "bg-white text-ink shadow-card" : "text-ink-muted hover:text-ink")}>
+            value === o.id ? "bg-surface text-ink shadow-card" : "text-ink-muted hover:text-ink")}>
           {o.label}
         </button>
       ))}
@@ -104,8 +104,8 @@ export function MultiSelect({ label, options, value, onChange }:
     <div className="relative" ref={ref}>
       <button onClick={() => setOpen(!open)}
         className={cls("h-8 px-3 rounded-lg border text-[12.5px] font-medium inline-flex items-center gap-1.5 transition",
-          value.length ? "border-brand/40 bg-brand-soft text-brand-strong" : "border-line bg-white text-ink-soft hover:bg-canvas")}>
-        {label}{value.length > 0 && <span className="num text-[11px] px-1.5 rounded bg-white/70">{value.length}</span>}
+          value.length ? "border-brand/40 bg-brand-soft text-brand-strong" : "border-line bg-surface text-ink-soft hover:bg-canvas")}>
+        {label}{value.length > 0 && <span className="num text-[11px] px-1.5 rounded bg-surface/70">{value.length}</span>}
         <ChevronDown size={14} className="opacity-60" />
       </button>
       {open && (
@@ -161,10 +161,13 @@ export function Select({ value, onChange, options, placeholder, className }:
   );
 }
 
-export function EmptyState({ icon, title, children, action }: { icon?: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {
+export type Art = "inbox" | "chat" | "book" | "chart" | "compass" | "spark" | "target" | "notes";
+
+export function EmptyState({ icon, title, children, action, art }: { icon?: ReactNode; title: string; children?: ReactNode; action?: ReactNode; art?: Art }) {
   return (
     <div className="flex flex-col items-center text-center py-10 px-6">
-      {icon && <div className="w-11 h-11 rounded-xl bg-canvas border border-line flex items-center justify-center text-ink-muted mb-3">{icon}</div>}
+      {art ? <Illustration art={art} className="mb-3" />
+        : icon && <div className="w-11 h-11 rounded-xl bg-canvas border border-line flex items-center justify-center text-ink-muted mb-3">{icon}</div>}
       <div className="font-semibold text-[14.5px]">{title}</div>
       {children && <div className="text-ink-muted text-[13px] mt-1 max-w-md">{children}</div>}
       {action && <div className="mt-4">{action}</div>}
@@ -190,9 +193,83 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 
 export function SectionTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between mb-3">
-      <h2 className="text-[15px] font-semibold">{children}</h2>
+    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <h2 className="text-[15px] font-semibold min-w-0">{children}</h2>
       {aside}
     </div>
+  );
+}
+
+/** Simple line illustrations for empty states. They use theme colours, so they work in dark mode too. */
+export function Illustration({ art, className }: { art: Art; className?: string }) {
+  const L = "rgb(var(--line-strong))", S = "rgb(var(--surface))", B = "rgb(var(--brand))", BS = "rgb(var(--brand-soft))", A = "#d97f06";
+  const common = { fill: S, stroke: L, strokeWidth: 1.5 };
+  const pieces: Record<Art, ReactNode> = {
+    inbox: <>
+      <rect x="22" y="22" width="76" height="46" rx="8" {...common} transform="rotate(-6 60 45)" />
+      <rect x="22" y="18" width="76" height="46" rx="8" {...common} />
+      <rect x="32" y="29" width="34" height="5" rx="2.5" fill={L} /><rect x="32" y="39" width="52" height="4" rx="2" fill={L} opacity=".6" />
+      <circle cx="90" cy="60" r="11" fill={B} /><path d="M85 60l3.5 3.5L95 57" stroke="#fff" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </>,
+    chat: <>
+      <path d="M18 22h54a8 8 0 018 8v20a8 8 0 01-8 8H38l-12 9v-9h-8a8 8 0 01-8-8V30a8 8 0 018-8z" {...common} />
+      <path d="M58 34h40a8 8 0 018 8v16a8 8 0 01-8 8h-6v8l-10-8H58a8 8 0 01-8-8V42a8 8 0 018-8z" fill={BS} stroke={B} strokeWidth="1.5" />
+      <circle cx="68" cy="50" r="2.5" fill={B} /><circle cx="78" cy="50" r="2.5" fill={B} /><circle cx="88" cy="50" r="2.5" fill={B} />
+    </>,
+    book: <>
+      <path d="M60 24c-10-6-26-6-38-2v46c12-4 28-4 38 2" {...common} /><path d="M60 24c10-6 26-6 38-2v46c-12-4-28-4-38 2z" {...common} />
+      <path d="M60 24v46" stroke={L} strokeWidth="1.5" />
+      <path d="M68 34h20M68 42h22M68 50h14" stroke={B} strokeWidth="2" strokeLinecap="round" /><path d="M30 34h20M30 42h18" stroke={L} strokeWidth="2" strokeLinecap="round" />
+    </>,
+    chart: <>
+      <rect x="14" y="14" width="92" height="60" rx="8" {...common} />
+      <rect x="26" y="48" width="10" height="16" rx="2" fill={L} /><rect x="42" y="40" width="10" height="24" rx="2" fill={L} />
+      <rect x="58" y="44" width="10" height="20" rx="2" fill={L} /><rect x="74" y="30" width="10" height="34" rx="2" fill={B} />
+      <path d="M26 40l20-10 16 6 24-14" stroke={A} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </>,
+    compass: <>
+      <circle cx="60" cy="44" r="30" {...common} /><circle cx="60" cy="44" r="22" fill="none" stroke={L} strokeDasharray="2 4" />
+      <path d="M60 24l7 20-7 20-7-20z" fill={BS} stroke={B} strokeWidth="1.5" strokeLinejoin="round" /><path d="M60 24l7 20h-14z" fill={B} />
+    </>,
+    spark: <>
+      <path d="M60 14l6 18 18 6-18 6-6 18-6-18-18-6 18-6z" fill={BS} stroke={B} strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M92 50l3 8 8 3-8 3-3 8-3-8-8-3 8-3z" fill={A} opacity=".85" /><path d="M28 54l2.5 6 6 2.5-6 2.5-2.5 6-2.5-6-6-2.5 6-2.5z" fill={L} />
+    </>,
+    target: <>
+      <circle cx="56" cy="46" r="28" {...common} /><circle cx="56" cy="46" r="18" fill={S} stroke={L} strokeWidth="1.5" />
+      <circle cx="56" cy="46" r="8" fill={BS} stroke={B} strokeWidth="1.5" />
+      <path d="M58 44l30-24" stroke={A} strokeWidth="2.2" strokeLinecap="round" /><path d="M82 16l8 2-2 8" stroke={A} strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </>,
+    notes: <>
+      <rect x="30" y="14" width="56" height="64" rx="6" {...common} transform="rotate(4 58 46)" />
+      <rect x="26" y="12" width="56" height="64" rx="6" {...common} />
+      <path d="M36 28h30M36 37h36M36 46h24" stroke={L} strokeWidth="2" strokeLinecap="round" />
+      <path d="M78 52l14-14 6 6-14 14-8 2z" fill={BS} stroke={B} strokeWidth="1.5" strokeLinejoin="round" />
+    </>,
+  };
+  return <svg viewBox="0 0 120 88" width="120" height="88" aria-hidden="true" className={className}>{pieces[art]}</svg>;
+}
+
+const SUFFIX = /\b(ag|sa|gmbh|ltd|limited|inc|llc|plc|bv|nv|se|co|corp|corporation|group|holding|the|and|&|of)\b\.?/gi;
+
+export function initials(name: string): string {
+  const words = (name || "?").replace(SUFFIX, " ").replace(/[^\p{L}\p{N} ]/gu, " ").split(/\s+/).filter(Boolean);
+  if (!words.length) return (name || "?").slice(0, 2).toUpperCase();
+  return (words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0]).toUpperCase();
+}
+
+function hue(name: string): number {
+  let h = 0;
+  for (const c of (name || "").toLowerCase()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return [205, 255, 165, 30, 340, 190, 120, 280, 10, 225, 60, 300][h % 12];
+}
+
+/** Coloured initials for a company. Generated locally: nothing is fetched. */
+export function Monogram({ name, size = 32, className }: { name: string; size?: number; className?: string }) {
+  return (
+    <span aria-hidden="true" className={cls("monogram inline-flex items-center justify-center rounded-lg font-semibold shrink-0 select-none", className)}
+      style={{ ["--h" as string]: hue(name), width: size, height: size, fontSize: Math.round(size * 0.38), letterSpacing: "-0.02em" }}>
+      {initials(name)}
+    </span>
   );
 }

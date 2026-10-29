@@ -106,7 +106,7 @@ def test_practice_suggestions(client):
 
     r = client.post("/api/career/practice", json={"question": qs[0], "answer": "We did it as a team.", "ref": f"application:{app_id}"}).json()
     assert r["feedback"]["method"] == "rules" and r["feedback"]["improve"]
-    assert client.post("/api/career/practice/questions", json={"application_id": app_id}).status_code == 503  # no Ollama
+    assert client.post("/api/career/practice/questions", json={"application_id": app_id}).status_code in (404, 405)  # removed
 
 
 def test_story_suggestions_and_skills_report(client):

@@ -172,7 +172,7 @@ default_role_area: Other
 # Location keywords -> region. First match wins.
 regions:
   - name: Switzerland
-    keywords: [switzerland, swiss, schweiz, suisse, svizzera, zurich, zürich, basel, geneva, genève, geneve,
+    keywords: [switzerland, Switzerland, swiss, schweiz, suisse, svizzera, zurich, zürich, basel, geneva, genève, geneve,
                zug, baar, bern, lausanne, lugano, schaffhausen, allschwil, nyon, visp, zermatt, winterthur,
                st. gallen, hinwil, cham, gruyere, vaud, ticino, schlieren, aargau, luzern, lucerne, fribourg,
                neuchâtel, neuchatel, dübendorf, rotkreuz, kaiseraugst, stein, rheinfelden, pratteln, risch,
@@ -182,7 +182,7 @@ regions:
                manchester, edinburgh, glasgow, leatherhead, stevenage, reading, slough, brentford, macclesfield,
                bristol, leeds, birmingham, berkshire]
   - name: Germany
-    keywords: [germany, deutschland, munich, münchen, berlin, hamburg, kassel, ingelheim, darmstadt, frankfurt,
+    keywords: [germany, Germany, deutschland, munich, münchen, berlin, hamburg, kassel, ingelheim, darmstadt, frankfurt,
                leverkusen, cologne, köln, mainz, heidelberg, mannheim, stuttgart, düsseldorf, dusseldorf,
                freiburg, tübingen, biberach, penzberg, marburg]
   - name: Other Europe

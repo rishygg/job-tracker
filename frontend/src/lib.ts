@@ -29,27 +29,47 @@ export function cls(...xs: (string | false | null | undefined)[]) {
 // Stage -> board column + colours. Palette chosen to stay distinguishable with colour-blindness
 // (blue / purple / orange / green / grey), and paired with labels everywhere.
 export const COLUMN_OF: Record<string, string> = {
-  Applied: "applied", Screening: "screening", Interview: "interviewing", "Final interview": "interviewing",
+  Saved: "saved", Applied: "applied", Screening: "screening", Interview: "interviewing", "Final interview": "interviewing",
   Offer: "offer", Accepted: "offer", Rejected: "closed", Ghosted: "closed", Withdrawn: "closed",
 };
 
+const stage = (key: string, dot: string) => ({
+  dot, text: `var(--stage-${key}-text)`, bg: `var(--stage-${key}-bg)`, ring: `var(--stage-${key}-ring)`,
+});
 export const STAGE_STYLE: Record<string, { dot: string; text: string; bg: string; ring: string }> = {
-  applied: { dot: "#3d6fd6", text: "#2a55b0", bg: "#edf2fc", ring: "#c9d7f4" },
-  screening: { dot: "#7f5bd1", text: "#6442b4", bg: "#f2eefb", ring: "#dcd0f3" },
-  interviewing: { dot: "#d97f06", text: "#a35f00", bg: "#fdf4e6", ring: "#f5dcb1" },
-  offer: { dot: "#0e9a69", text: "#0a7a53", bg: "#e8f6f0", ring: "#bfe6d6" },
-  closed: { dot: "#8f97a6", text: "#5d6676", bg: "#f2f3f5", ring: "#dde0e6" },
+  saved: stage("saved", "#3a9ea5"),
+  applied: stage("applied", "#3d6fd6"),
+  screening: stage("screening", "#7f5bd1"),
+  interviewing: stage("interview", "#d97f06"),
+  offer: stage("offer", "#0e9a69"),
+  closed: stage("closed", "#8f97a6"),
 };
+
+/** A theme token for inline styles, e.g. tok("danger") -> "rgb(var(--danger))". */
+export const tok = (name: string, alpha?: number) => alpha === undefined ? `rgb(var(--${name}))` : `rgb(var(--${name}) / ${alpha})`;
+
+/** The resolved colour of a token, for SVG attributes (charts) that can't read CSS variables. */
+export function cssVar(name: string): string {
+  if (typeof window === "undefined") return "#888";
+  const v = getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
+  return v ? `rgb(${v.split(/\s+/).join(",")})` : "#888";
+}
 
 export function stageStyle(stage: string) {
   return STAGE_STYLE[COLUMN_OF[stage] ?? "closed"];
 }
 
 export const OUTCOME_COLORS: Record<string, string> = {
-  Offer: "#0e9a69", Interviewed: "#d97f06", Rejected: "#b9bfca", Ghosted: "#7c8494", Withdrawn: "#dfe2e8",
+  Offer: "#0e9a69", Interviewed: "#d97f06", Rejected: "#a9b0bd", Ghosted: "#6f7888", Withdrawn: "#c9ced8",
   Waiting: "#3d6fd6",
 };
 
 export const CHART = {
-  primary: "#0e7a5c", secondary: "#3d6fd6", tertiary: "#d97f06", muted: "#c9ced8", grid: "#eef0f3", axis: "#9aa2b1",
+  get primary() { return cssVar("brand"); },
+  secondary: "#3d6fd6", tertiary: "#d97f06",
+  get muted() { return cssVar("line-strong"); },
+  get grid() { return cssVar("line"); },
+  get axis() { return cssVar("ink-faint"); },
+  get surface() { return cssVar("surface"); },
+  get ink() { return cssVar("ink"); },
 };

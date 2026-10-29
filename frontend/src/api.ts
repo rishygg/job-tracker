@@ -35,6 +35,7 @@ export interface AppItem {
   active: boolean;
   outcome: string;
   jd_match: number | null;
+  rank?: Dict | null;
   has_jd: boolean;
   days_to_apply: number | null;
 }

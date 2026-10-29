@@ -1,0 +1,67 @@
+# What your chat assistant fills in for each job when you click "Rank with chat assistant".
+#
+# Edit this file (or Settings -> Rules -> Chat ranking fields) to add, remove or reword fields.
+# The prompt, the reply reader, the board cards and the job panel all follow it; no code changes needed.
+#
+# Always included (built in, used for sorting): score (1-10), verdict (Apply / Apply with caveats / Skip),
+# reason (one sentence) and missing (the main gap).
+#
+# Each extra field:
+#   key:     short name, letters/numbers/underscores (used in the reply JSON)
+#   label:   what the tracker shows
+#   type:    number | choice | text
+#   min/max: for numbers (values outside are clamped)
+#   suffix:  shown after a number, e.g. "%"
+#   options: for choices (the assistant must pick one)
+#   ask:     the instruction given to the assistant for this field
+#   show:    card   = a chip on the board card and in the job panel
+#            detail = only in the job panel
+
+# Used to prefill "What I'm looking for" the first time. Your own text is saved privately in your database.
+default_criteria: |
+  Judge each job on: skills match and transferability, how much experience it asks for, growth potential,
+  location, likelihood of passing ATS screening, chance of an interview and long-term upside.
+  Be honest and specific.
+
+fields:
+  - key: ats
+    label: ATS match
+    type: number
+    min: 0
+    max: 100
+    suffix: "%"
+    ask: how well my profile's wording matches the keywords an applicant tracking system would screen for (0-100)
+    show: card
+
+  - key: interview_chance
+    label: Interview chance
+    type: choice
+    options: [Low, Medium, High]
+    ask: realistic chance of getting an interview with my profile
+    show: card
+
+  - key: salary
+    label: Salary estimate
+    type: text
+    ask: estimated annual salary range in the local currency, e.g. "CHF 45-55k" (estimate if not stated)
+    show: card
+
+  - key: competitiveness
+    label: Competitiveness
+    type: choice
+    options: [Low, Medium, High, Very high]
+    ask: how competitive this role is likely to be
+    show: detail
+
+  - key: strengths
+    label: Top strengths
+    type: text
+    ask: my two strongest selling points for this job, short
+    show: detail
+
+  - key: growth
+    label: Growth potential
+    type: choice
+    options: [Low, Medium, High]
+    ask: career growth and long-term upside, including internships that could lead to a job
+    show: detail

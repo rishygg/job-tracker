@@ -3,70 +3,66 @@
 A private, local job-application tracker that tells you **which kinds of roles you actually succeed in** — and
 what to do today.
 
-- **Overview** – today's priorities (follow-ups, likely-ghosted applications, due reminders, upcoming interviews,
-  thank-you notes), your active pipeline, upcoming interviews and key insights.
-- **Applications** – a drag-and-drop board and a sortable table. Every application has a detail panel with a
-  stage timeline (schedule interviews with future dates, edit or remove stages), the job description with skills
-  and requirement detection, reminders and editable role dimensions.
-- **Analytics** – conversion rates between every pipeline step (application → response → first interview →
-  later round → offer), median time to response, response/interview/offer rate by job family or any other
-  dimension, a funnel, a flow diagram, the Role Success Scorecard and a two-dimension heatmap.
-- **Discover** – paste any job description to check it against your CV before applying, then save it to a
-  shortlist ranked by fit (with deadlines feeding into today's priorities) or add it as an application.
-- **CV fit analysis** – for every job: essential vs. preferred requirements, evidence quoted from your CV,
-  strengths, gaps, potential blockers (language, work permit, location, degree, experience) and a recommendation:
-  *Apply*, *Apply with caveats* or *Deprioritise*.
-- **Evidence bank** – your CV is split once into structured records (achievements, responsibilities,
-  qualifications, projects) with their role, metrics, tools and stakeholders. Confirm records, add what you
-  actually did, hide what's irrelevant, or add evidence that isn't on your CV.
-- **CV builder** – a recruiter-style review per job: what the role prioritises, which of your lines to emphasise
-  or reword, critiques of specific bullets (why it's weak + one concrete fix), questions a recruiter would ask,
-  what to add if true, what to shorten, and keywords.
-- **Cover letter builder** – the strongest experience-to-role connection, the most credible reason to be
-  interested, the one example worth highlighting, what's missing from the story, generic statements to avoid,
-  and a suggested structure. Both builders have a **Copy brief** button: a ready-made prompt to paste into any
-  chat assistant to draft your own version.
-- **Career development** – an **interview journal** (questions asked, how each answer went, what was hard, feedback,
-  next steps) that surfaces **recurring themes**: question types you get most, where your answers are weakest, questions
-  that keep coming back, and skills you're asked about but have no story for. A **personalised practice plan** built
-  from your own interviews, your next interviews (what that company asked before, its essential requirements) and your
-  weak spots, with instant STAR feedback on written answers. A **story bank** of reusable STAR examples, seeded from
-  your evidence bank and matched to practice questions. A **skills report** across every job description you've saved
-  or applied to (most requested, gaps, what's asked for more lately, essentials you were missing). And **industry
-  notes**, shown next to your results in each industry.
-- **Quick add** – press **N** anywhere, paste a job description, and title, company, seniority, industry, work
-  permit, language, work mode and skills are filled in. Uncertain values are highlighted for review.
-- **Consistent filters** – job family, industry, seniority, location, channel and date range apply to the board,
-  the table, the insights and every chart.
+- **Add a job** – press **N** anywhere (or use the browser bookmark) and paste the whole posting page. Page clutter
+  (buttons, "Apply", AI summaries, company boilerplate) is removed with one-click undo; position, company, location,
+  workload, contract and deadline are filled in, with uncertain guesses highlighted; and an instant **fit check**
+  shows the verdict and its reasons before you save. Save it for later or as an application.
+- **Inbox** – everything you collect lands here first, as many as you like. Rank them all with your chat assistant,
+  then mark each one **Applied** (it joins the board and the statistics) or **Skip** (kept out of the way under
+  *Skipped*, and pasting the same posting again warns you). Only jobs you applied to count in Analytics.
+- **Applications** – a drag-and-drop board (Applied onwards) and a sortable table with batch actions. Filter by
+  current status or by the furthest stage reached ("an interview or later"). Every job opens in one panel whose
+  first tab is **Prepare**: fit → apply → interview prep → journal.
+- **Explainable fit** – rules only, instant: essential vs. preferred requirements (benefits and company text are
+  ignored), the line in your profile that shows each one, blockers (language, permit, degree, experience) and a
+  recommendation: *Apply*, *Apply with caveats* or *Deprioritise*. Soft skills are listed separately, not scored.
+  Postings in German get the eligibility check only and are marked *Not scored*.
+- **Your chat assistant does the thinking** – **Rank with chat assistant** copies a prompt with your profile and every
+  Inbox job that isn't ranked yet (or the ones you tick); a long list is cut into parts of up to 30 jobs that the
+  assistant can answer one at a time. Paste each reply back and every job gets its score, verdict, reason and your
+  extra fields. Tomorrow's batch only contains the new jobs. Each job also has ready-made prompts: biggest weakness, which claim needs evidence,
+  what would make a recruiter hesitate, tailor my CV, draft my cover letter, prepare me for the interview.
+- **Me** – your profile as **entries** (experience, education, projects, publications, skills) instead of a CV file.
+  Paste a CV section to split it into entries, or import your CV once and tidy the result. Plus eligibility and
+  skills, the story bank and how you write.
+- **Overview** – greeting, weekly goal ring and streak, today's priorities (follow-ups, likely ghosts, deadlines,
+  reminders, thank-you notes), a momentum calendar, milestones and what's coming up.
+- **Analytics** – conversion between every step, a funnel, **What works for you** (success rate by job family,
+  seniority, industry, location, channel, timing…), monthly outcomes, a **Companies** tab (who replies, how fast,
+  the ghost list) and a zoomable **map** (towns, plus countries when no town is given).
+- **Career development** – interview journal with recurring themes, a practice plan with instant feedback (and a
+  prompt to get deeper feedback from your chat assistant), story bank, skills report and industry notes.
+- **Ctrl+K command bar**, **dark mode**, and undo for stage changes.
 
 Everything runs on your machine. Your data lives in a local SQLite file that is never committed.
 
-## Local AI with Ollama (optional)
+## Customising chat rankings
 
-The fit analysis works out of the box with keyword matching. For analyses that read postings the way a person
-would, and for recruiter-style CV and cover letter reviews, run a local model with [Ollama](https://ollama.com):
+What your chat assistant fills in for each job is defined in **`config/ranking.yaml`** (also editable in
+**Settings → Rules → Chat ranking fields**). By default it asks for an ATS match, interview chance, salary estimate,
+competitiveness, top strengths and growth potential, on top of the built-in score, verdict, reason and main gap.
+Add, remove or reword fields there; the prompt, the reply reader, the board cards and the job panel all follow, with
+no code changes. Each field has a `type` (number, choice or text), an `ask` (the instruction to the assistant) and
+`show: card` (chip on the board) or `show: detail` (job panel only).
+
+Your own criteria ("prefer Switzerland, salary above 40k, German up to B1…") go in the box in the ranking window.
+They're saved in your private database, not in the config file, so nothing personal gets committed.
+
+## Ollama (optional): reading descriptions in the background
+
+The tracker needs no AI. If you run [Ollama](https://ollama.com), a local model can read your saved job
+descriptions in the background, once each, to pick out skills, industry and seniority that keyword rules miss.
+This feeds the skills report and shows **where you get interviews by industry and seniority**.
 
 ```bash
 # install Ollama from https://ollama.com/download, then:
 ollama pull qwen2.5:7b      # ~4.7 GB, good on 16 GB RAM (use qwen2.5:3b on 8 GB)
 ```
 
-Then open **Settings → Profile, CV & AI**, click *Test connection*, pick the model and click *Measure speed*. Nothing
-leaves your computer.
-
-A 7B model on a laptop CPU writes roughly 4–10 tokens a second, so AI tasks take minutes, not seconds. They therefore
-run **in the background, one at a time** (Ollama answers one request at a time anyway): you see live progress and a
-time estimate, the sidebar shows what's running, you can keep working or stop a task, and reviews you ask for jump
-ahead of batch ranking. CV and cover letter reviews come in two parts; the first part appears as soon as it's ready.
-If your computer is slow, `qwen2.5:3b` is about twice as fast.
-
-AI is optional everywhere: fit scores, CV and cover letter reviews, practice plans and answer feedback all have an
-instant rule-based version, and each AI section is labelled so you know which one you're looking at.
-
-The model is never trusted blindly: every piece of evidence it quotes is checked against your CV, and anything it
-can't back up is downgraded (a "met" requirement becomes "partial"; a "backed" CV line becomes "needs your input").
-The score and recommendation are computed by the app from the requirement statuses and the rule-based blockers,
-so AI and keyword analyses are judged the same way.
+In **Settings**, test the connection, measure speed and click *Read … with Ollama*; optionally turn on reading new
+descriptions automatically. On a laptop each description takes roughly 30–50 seconds, so ~150 descriptions take
+1–2 hours the first time (you can keep working or stop it) and under a minute per new job afterwards. Results are
+cached by the description's content; the statistics themselves are instant.
 
 ## Quick start
 
@@ -82,8 +78,8 @@ python -m jobtracker
 ```
 
 Your browser opens at http://localhost:8501. Load the sample data from **Settings → Import & export** to look
-around, or import your own spreadsheet there. Then, under **Settings → Profile, CV & AI**, upload your CV (PDF,
-Word or text) and fill in your languages, degree, experience and work-permit status per location.
+around, or import your own spreadsheet there. Then, under **Me**, add your experience (or import your CV once)
+and fill in your languages, degree, experience and work-permit status per location.
 
 Options: `python -m jobtracker --port 8600 --no-browser`. To keep the database elsewhere, set
 `JOBTRACKER_DB=/path/to/tracker.db`.
@@ -135,11 +131,16 @@ jobtracker/
   storage.py        SQLite: applications, stage history, reminders, settings
   analysis.py       enrichment, conversion metrics, scorecard, funnel, flow (pure pandas)
   notifications.py  today's priorities
-  fit.py            CV-vs-job analysis and blockers (keywords or Ollama)
-  evidence.py       evidence bank: CV -> structured records (one-time), optional AI enrichment
-  builder.py        job priorities, CV builder and cover letter builder (rules or focused Ollama review)
+  posting.py        cleaning pasted postings and pulling out position, company, location, workload, contract, deadline
+  fit.py            explainable rule-based fit and blockers
+  entries.py        your profile as entries: paste-to-split, one-time CV conversion, evidence lines
+  prompts.py        prompts for your chat assistant, reading its rankings back, config/ranking.yaml fields
+  digest.py         optional background reading of descriptions with Ollama
+  evidence.py       evidence lines used for matching
+  builder.py        job priorities and evidence ranking
   career.py         interview journal themes, practice plan, answer feedback, story bank, skills report
-  aijobs.py         background AI task queue (one at a time, priorities, progress, cancel)
+  fun.py            momentum calendar, milestones, company reply times, map points (offline GeoNames towns)
+  aijobs.py         background Ollama task queue (one at a time, priorities, progress, cancel)
   cvtext.py         CV text extraction (PDF, Word, text)
   llm.py            minimal Ollama client (streaming, speed measurement, truncated-JSON repair)
   dimensions.py     seniority / industry / permit / language / skills inference
@@ -147,7 +148,7 @@ jobtracker/
   importer.py       Excel/CSV import and export
   web/              built interface (generated, committed so users don't need Node)
 frontend/           React + TypeScript + Tailwind source
-config/             editable rules
+config/             editable rules (categories.yaml, dimensions.yaml, places.yaml for the map)
 tests/              pytest suite
 ```
 

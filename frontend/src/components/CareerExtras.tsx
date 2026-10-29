@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, BookOpen, Check, ExternalLink, Lightbulb, Plus, Search, ShieldAlert, Sparkles, Target, Trash2, TrendingUp } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, Plus, Search, ShieldAlert, Sparkles, Target, Trash2, TrendingUp } from "lucide-react";
 import { api, type Dict } from "../api";
 import { useApi, useApp } from "../store";
 import { cls, fmtDate, pct } from "../lib";
 import { EmptyState, Field, Modal, Select, Skeleton } from "./ui";
 import { FilterBar } from "./FilterBar";
 import { useCareerMeta } from "./careerShared";
+import { DigestPanel } from "./Digest";
 
 // ------------------------------------------------------------------ story bank
 const STAR = [
@@ -33,8 +34,8 @@ export function StoriesTab() {
           <button className="btn-primary" onClick={() => setOpen({ competencies: [] })}><Plus size={15} /> New story</button>
         </div>
         {!stories.length ? (
-          <div className="card"><EmptyState icon={<BookOpen size={20} />} title="Build a few reusable stories">
-            Five or six well-prepared examples cover most behavioural questions. Start from the suggestions on the right: they come from the strongest lines in your evidence bank.
+          <div className="card"><EmptyState art="book" title="Build a few reusable stories">
+            Five or six well-prepared examples cover most behavioural questions. Start from the suggestions on the right: they come from the strongest lines in your entries under Me.
           </EmptyState></div>
         ) : (
           <ul className="grid sm:grid-cols-2 gap-3">
@@ -61,7 +62,7 @@ export function StoriesTab() {
       <aside className="card p-4">
         <div className="eyebrow mb-1 flex items-center gap-1.5"><Sparkles size={12} />Good material from your CV</div>
         <p className="text-[11.5px] text-ink-muted mb-3">Lines with results, scale or other people involved, not yet in a story.</p>
-        {!data?.suggestions?.length ? <p className="text-[12.5px] text-ink-muted">Nothing new. Add achievements to your evidence bank in Settings.</p> : (
+        {!data?.suggestions?.length ? <p className="text-[12.5px] text-ink-muted">Nothing new. Add achievements to your entries (Me → Experience &amp; education).</p> : (
           <ul className="space-y-2">
             {data.suggestions.map((x: Dict) => (
               <li key={x.evidence_id} className="rounded-lg border border-line p-2.5">
@@ -114,7 +115,7 @@ function StoryEditor({ initial, onClose }: { initial: Dict; onClose: () => void 
           ))}</div>
         </div>
         <div className="text-[11.5px] text-ink-muted num">{words} words · about {Math.round(words / 140 * 10) / 10} min spoken (aim for 1.5–2)</div>
-        {s.tips?.length > 0 && <ul className="text-[12px] text-[#7a4a00] space-y-0.5">{s.tips.map((t: string) => <li key={t} className="flex gap-1.5"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{t}</li>)}</ul>}
+        {s.tips?.length > 0 && <ul className="text-[12px] text-warn-strong space-y-0.5">{s.tips.map((t: string) => <li key={t} className="flex gap-1.5"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{t}</li>)}</ul>}
         {s.used?.length > 0 && (
           <div><div className="eyebrow mb-1">Used for</div><ul className="text-[12.5px] space-y-0.5">{s.used.map((u: Dict, i: number) => <li key={i}>“{u.question}” <span className="text-ink-muted">· {u.company}{u.rating ? ` · ${u.rating}/5` : ""}</span></li>)}</ul></div>
         )}
@@ -131,14 +132,15 @@ export function SkillsTab() {
   if (loading && !data) return <Skeleton className="h-96" />;
   if (!data?.jobs) return (
     <div className="space-y-4"><FilterBar />
-      <div className="card"><EmptyState icon={<Target size={20} />} title="No job descriptions yet">Paste job descriptions into your applications or saved jobs. The report counts the skills they ask for and compares them with your CV.</EmptyState></div></div>
+      <div className="card"><EmptyState art="target" title="No job descriptions yet">Paste job descriptions into your applications or Inbox jobs. The report counts the skills they ask for and compares them with your CV.</EmptyState></div></div>
   );
   const rows: Dict[] = showAll ? data.skills : data.skills.slice(0, 15);
   const max = Math.max(...data.skills.map((r: Dict) => r.share), 0.01);
   return (
     <div className="space-y-4">
       <FilterBar />
-      <p className="text-[12.5px] text-ink-muted">Across <b className="num text-ink">{data.jobs}</b> job descriptions (your applications and saved jobs){data.recent_jobs ? <>, <b className="num text-ink">{data.recent_jobs}</b> from the last 60 days</> : null}. “You have it” means it's in your CV, skills list or evidence bank.</p>
+      <p className="text-[12.5px] text-ink-muted">Across <b className="num text-ink">{data.jobs}</b> job descriptions (your applications and Inbox jobs){data.recent_jobs ? <>, <b className="num text-ink">{data.recent_jobs}</b> from the last 60 days</> : null}. “You have it” means it's in your entries or skills list.{data.digests ? <> Includes skills a local model found in <b className="num text-ink">{data.digests}</b> of them.</> : null}</p>
+      <DigestPanel compact />
       <div className="grid lg:grid-cols-[1fr_360px] gap-5 items-start">
         <section className="card p-5">
           <h3 className="text-[14px] font-semibold mb-3">Most requested skills</h3>
@@ -149,12 +151,12 @@ export function SkillsTab() {
                 <div className="h-2.5 rounded-full bg-canvas overflow-hidden">
                   <div className={cls("h-full rounded-full", r.have ? "bg-brand" : "bg-[repeating-linear-gradient(45deg,#d97f06_0_4px,#f2c58a_4px_8px)]")} style={{ width: `${(r.share / max) * 100}%` }} />
                 </div>
-                <span className="num text-ink-muted w-[110px] text-right">{pct(r.share)} · {r.have ? <span className="text-brand inline-flex items-center gap-0.5"><Check size={11} />have</span> : <span className="text-[#a35f00]">missing</span>}</span>
+                <span className="num text-ink-muted w-[110px] text-right">{pct(r.share)} · {r.have ? <span className="text-brand inline-flex items-center gap-0.5"><Check size={11} />have</span> : <span className="text-warn">missing</span>}</span>
               </li>
             ))}
           </ul>
           {data.skills.length > 15 && <button className="btn-ghost btn-sm mt-3" onClick={() => setShowAll(!showAll)}>{showAll ? "Show fewer" : `Show all ${data.skills.length}`}</button>}
-          <p className="text-[11px] text-ink-muted mt-3">Solid bar: in your CV. Striped bar: asked for but not in your CV.</p>
+          <p className="text-[11px] text-ink-muted mt-3">Solid bar: in your profile. Striped bar: asked for but not in your profile.</p>
         </section>
         <aside className="space-y-4">
           <SkillList title="Gaps worth closing" icon={<Target size={12} />} items={data.top_gaps} hint="Asked for most often, not in your CV yet." />
@@ -169,6 +171,8 @@ export function SkillsTab() {
               ))}</ul>
             </section>
           )}
+          <ResultsBy title="Where you get interviews · industry" rows={data.by_industry} />
+          <ResultsBy title="Where you get interviews · seniority" rows={data.by_seniority} />
           {data.blockers?.length > 0 && (
             <section className="card p-4">
               <div className="eyebrow mb-2 flex items-center gap-1.5"><ShieldAlert size={12} />Hard blockers seen</div>
@@ -178,6 +182,26 @@ export function SkillsTab() {
         </aside>
       </div>
     </div>
+  );
+}
+
+function ResultsBy({ title, rows }: { title: string; rows?: Dict[] }) {
+  if (!rows?.length) return null;
+  const best = Math.max(...rows.map((r) => r.interview_rate), 0.01);
+  return (
+    <section className="card p-4">
+      <div className="eyebrow mb-1">{title}</div>
+      <p className="text-[11.5px] text-ink-muted mb-2">Applications whose description was read with Ollama. Small groups are noisy.</p>
+      <ul className="space-y-1.5">
+        {rows.map((r) => (
+          <li key={r.label} className="grid grid-cols-[1fr_70px_auto] items-center gap-2 text-[12.5px]">
+            <span className="truncate" title={r.label}>{r.label}</span>
+            <div className="h-1.5 rounded-full bg-canvas overflow-hidden"><div className="h-full rounded-full bg-violet" style={{ width: `${(r.interview_rate / best) * 100}%` }} /></div>
+            <span className="num text-ink-muted text-right w-[86px]" title={`${r.responses} responses`}>{r.interviews}/{r.applied} · {pct(r.interview_rate)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -235,7 +259,7 @@ export function NotesTab() {
           <div className="rounded-lg bg-canvas px-4 py-2.5 text-[12.5px] text-ink-soft">Your record in {industry}: <b className="num">{st.applications}</b> applications · <b className="num">{st.interviews}</b> reached interview{st.response_rate !== null ? <> · <b className="num">{pct(st.response_rate)}</b> response rate</> : null}</div>
         )}
         {!shown.length ? (
-          <div className="card"><EmptyState icon={<Lightbulb size={20} />} title={notes.length ? "No notes match" : "Keep what you learn about each industry"}>
+          <div className="card"><EmptyState art="notes" title={notes.length ? "No notes match" : "Keep what you learn about each industry"}>
             Hiring cycles, who the big employers are, what interviewers there care about, salary ranges, people you've talked to. Notes are grouped by industry, next to your results in it.
           </EmptyState></div>
         ) : (

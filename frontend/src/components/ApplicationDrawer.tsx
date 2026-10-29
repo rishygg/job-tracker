@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bell, Check, ExternalLink, FileText, Pencil, Sparkles, Star, Trash2, X } from "lucide-react";
+import { Bell, BriefcaseBusiness, CalendarClock, Check, ExternalLink, FileText, ListChecks, MapPin, Pencil, Star, Trash2, X } from "lucide-react";
 import { api, type Dict } from "../api";
 import { useApp } from "../store";
 import { cls, fmtDate, pct, relDays, stageStyle, today } from "../lib";
-import { Drawer, Field, Select, Skeleton, StatusPill, Tabs } from "./ui";
-import { FitPanel } from "./Fit";
+import { celebrate } from "./Confetti";
+import { Drawer, Field, Monogram, Select, Skeleton, StatusPill, Tabs } from "./ui";
+import { PreparePanel } from "./Prepare";
 
-type Tab = "overview" | "timeline" | "jd" | "reminders" | "fit";
+type Tab = "prepare" | "overview" | "timeline" | "jd" | "reminders";
 const DIMS: [string, string][] = [
   ["role_area", "Job family"], ["seniority", "Seniority"], ["industry", "Industry"], ["region", "Location group"],
   ["company_size", "Company size"], ["work_authorization", "Work permit"], ["language", "Language"], ["work_mode", "Work mode"],
@@ -14,19 +15,20 @@ const DIMS: [string, string][] = [
 const STEPS = ["Applied", "Screening", "Interview", "Final interview", "Offer"];
 
 export function ApplicationDrawer({ id, onClose }: { id: number | null; onClose: () => void }) {
-  const { refresh, toast, version } = useApp();
+  const { refresh, toast, version, undoable } = useApp();
   const [app, setApp] = useState<Dict | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>("prepare");
   const [staging, setStaging] = useState<string | null>(null);
 
   const load = () => id && api.get(`/api/applications/${id}`).then(setApp).catch((e) => toast(e.message, "error"));
-  useEffect(() => { setApp(null); setTab("overview"); setStaging(null); if (id) load(); }, [id]);
+  useEffect(() => { setApp(null); setTab("prepare"); setStaging(null); if (id) load(); }, [id]);
   useEffect(() => { if (id && app) load(); }, [version]);
 
   async function recordStage(stage: string, date: string, note: string) {
     try {
       const a = await api.post(`/api/applications/${id}/stages`, { stage, date, note });
-      setApp(a); setStaging(null); refresh(); toast(`Recorded: ${stage}`);
+      setApp(a); setStaging(null); refresh(); undoable(`Recorded: ${stage}`, a.event_id ? [a.event_id] : []);
+      if (stage === "Offer" || stage === "Accepted") celebrate();
     } catch (e: any) { toast(e.message, "error"); }
   }
 
@@ -46,6 +48,7 @@ export function ApplicationDrawer({ id, onClose }: { id: number | null; onClose:
         <>
           <header className="px-6 pt-5 pb-4 border-b border-line">
             <div className="flex items-start gap-3">
+              <Monogram name={app.company} size={44} className="mt-0.5 text-[16px]" />
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] text-ink-muted font-medium flex items-center gap-2">
                   {app.company}
@@ -78,7 +81,7 @@ export function ApplicationDrawer({ id, onClose }: { id: number | null; onClose:
                       className={cls("flex-1 min-w-0 group text-left rounded-md px-2 py-1.5 transition border",
                         current ? "border-transparent" : "border-transparent hover:bg-canvas")}
                       style={current ? { background: st.bg, boxShadow: `inset 0 0 0 1px ${st.ring}` } : undefined}>
-                      <div className="h-1 rounded-full mb-1.5" style={{ background: reached ? st.dot : "#e4e7ec" }} />
+                      <div className="h-1 rounded-full mb-1.5" style={{ background: reached ? st.dot : "rgb(var(--line))" }} />
                       <div className={cls("text-[11.5px] font-medium truncate", reached ? "text-ink" : "text-ink-faint")}>{s}</div>
                     </button>
                   );
@@ -87,7 +90,7 @@ export function ApplicationDrawer({ id, onClose }: { id: number | null; onClose:
                 {["Rejected", "Ghosted", "Withdrawn"].map((s) => (
                   <button key={s} onClick={() => setStaging(s)}
                     className={cls("px-2 py-1 rounded-md text-[11.5px] font-medium border transition",
-                      app.status === s ? "bg-[#f2f3f5] border-line-strong text-ink" : "border-transparent text-ink-muted hover:bg-canvas")}>
+                      app.status === s ? "bg-neutral-soft border-line-strong text-ink" : "border-transparent text-ink-muted hover:bg-canvas")}>
                     {s}
                   </button>
                 ))}
@@ -101,11 +104,11 @@ export function ApplicationDrawer({ id, onClose }: { id: number | null; onClose:
 
           <div className="px-6">
             <Tabs value={tab} onChange={setTab} tabs={[
+              { id: "prepare", label: <span className="inline-flex items-center gap-1"><ListChecks size={14} /> Prepare</span> },
               { id: "overview", label: "Details" },
               { id: "timeline", label: <>Timeline <span className="num text-ink-faint">{app.events.length}</span></> },
               { id: "jd", label: "Job description" },
               { id: "reminders", label: <>Reminders {app.reminders.filter((r: Dict) => !r.done).length > 0 && <span className="num text-alert">{app.reminders.filter((r: Dict) => !r.done).length}</span>}</> },
-              { id: "fit", label: <span className="inline-flex items-center gap-1"><Sparkles size={13} /> CV fit & documents</span> },
             ]} />
           </div>
           <div className="flex-1 overflow-y-auto scroll-thin px-6 py-5">
@@ -113,7 +116,7 @@ export function ApplicationDrawer({ id, onClose }: { id: number | null; onClose:
             {tab === "timeline" && <Timeline app={app} onChanged={() => { load(); refresh(); }} onAdd={() => setStaging(app.status)} />}
             {tab === "jd" && <JobDescription app={app} onSaved={(a) => { setApp(a); refresh(); }} />}
             {tab === "reminders" && <Reminders app={app} onChanged={() => { load(); refresh(); }} />}
-            {tab === "fit" && <FitPanel kind="application" refId={app.id} hasJd={(app.job_description ?? "").trim().length >= 80} />}
+            {tab === "prepare" && <PreparePanel kind="application" refId={app.id} hasJd={(app.job_description ?? "").trim().length >= 80} info={app} />}
           </div>
         </>
       )}
@@ -163,7 +166,7 @@ function DetailsForm({ app, onSaved }: { app: Dict; onSaved: (a: Dict) => void }
     company: app.company ?? "", position: app.position ?? "", location: app.location ?? "",
     date_applied: app.date_applied ?? "", date_posted: app.date_posted ?? "", source: app.source ?? "",
     contact: app.contact ?? "", url: app.url ?? "", cv_version: app.cv_version ?? "", fit_rating: app.fit_rating ?? 0,
-    salary: app.salary ?? "", notes: app.notes ?? "",
+    salary: app.salary ?? "", notes: app.notes ?? "", workload: app.workload ?? "", contract: app.contract ?? "",
     ...Object.fromEntries(DIMS.map(([d]) => [d, app.overrides?.[d] ?? ""])),
   }), [app]);
   const [f, setF] = useState<Dict>(initial);
@@ -188,6 +191,8 @@ function DetailsForm({ app, onSaved }: { app: Dict; onSaved: (a: Dict) => void }
         <Field label="Channel"><Select value={f.source} onChange={set("source")} options={meta.sources} placeholder="Not recorded" /></Field>
         <Field label="Date applied"><input type="date" className="input num" value={f.date_applied} onChange={(e) => set("date_applied")(e.target.value)} /></Field>
         <Field label="Date posted"><input type="date" className="input num" value={f.date_posted} onChange={(e) => set("date_posted")(e.target.value)} /></Field>
+        <Field label="Workload"><input className="input" value={f.workload} placeholder="e.g. 80–100%" onChange={(e) => set("workload")(e.target.value)} /></Field>
+        <Field label="Contract"><Select value={f.contract} onChange={set("contract")} options={["Permanent", "Fixed-term", "Internship", "Freelance", "Apprenticeship"]} placeholder="Not recorded" /></Field>
         <Field label="Contact / hiring manager"><input className="input" value={f.contact} onChange={(e) => set("contact")(e.target.value)} /></Field>
         <Field label="Link"><input className="input" value={f.url} onChange={(e) => set("url")(e.target.value)} /></Field>
         <Field label="CV version">
@@ -198,7 +203,7 @@ function DetailsForm({ app, onSaved }: { app: Dict; onSaved: (a: Dict) => void }
           <div className="flex items-center gap-0.5 h-9">
             {[1, 2, 3, 4, 5].map((n) => (
               <button key={n} type="button" aria-label={`${n} of 5`} onClick={() => set("fit_rating")(f.fit_rating === n ? 0 : n)}
-                className={cls("p-1 rounded", n <= f.fit_rating ? "text-[#d97f06]" : "text-line-strong hover:text-ink-faint")}>
+                className={cls("p-1 rounded", n <= f.fit_rating ? "text-amber" : "text-line-strong hover:text-ink-faint")}>
                 <Star size={17} fill={n <= f.fit_rating ? "currentColor" : "none"} />
               </button>
             ))}
@@ -221,7 +226,7 @@ function DetailsForm({ app, onSaved }: { app: Dict; onSaved: (a: Dict) => void }
         </div>
       </div>
 
-      <div className="sticky bottom-0 -mx-6 px-6 py-3 bg-white/95 backdrop-blur border-t border-line flex justify-end gap-2">
+      <div className="sticky bottom-0 -mx-6 px-6 py-3 bg-surface/95 backdrop-blur border-t border-line flex justify-end gap-2">
         <button className="btn-secondary" disabled={!dirty} onClick={() => setF(initial)}>Discard</button>
         <button className="btn-primary" disabled={!dirty} onClick={save}><Check size={15} /> Save changes</button>
       </div>
@@ -255,7 +260,7 @@ function Timeline({ app, onChanged, onAdd }: { app: Dict; onChanged: () => void;
           return (
             <li key={e.id} className="relative pl-7 pb-5 group">
               {i < events.length - 1 && <span className="absolute left-[5px] top-4 bottom-0 w-px bg-line" />}
-              <span className="absolute left-0 top-1.5 w-[11px] h-[11px] rounded-full ring-4 ring-white" style={{ background: st.dot }} />
+              <span className="absolute left-0 top-1.5 w-[11px] h-[11px] rounded-full ring-4 ring-surface" style={{ background: st.dot }} />
               {editing === e.id ? (
                 <div className="flex flex-wrap items-end gap-2 p-2.5 rounded-lg bg-canvas">
                   <Field label="Stage" className="w-40"><Select value={edit.stage} onChange={(v) => setEdit({ ...edit, stage: v })} options={meta?.stages ?? []} className="h-8" /></Field>
@@ -327,7 +332,7 @@ function JobDescription({ app, onSaved }: { app: Dict; onSaved: (a: Dict) => voi
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <div className="eyebrow mb-2">You have</div>
-            <div className="flex flex-wrap gap-1">{have.length ? have.map((s: Dict) => <span key={s.skill} className="chip bg-brand-soft text-brand-strong border-brand/20">{s.skill}</span>) : <span className="text-ink-muted text-[12.5px]">{a.has_profile ? "None of the listed skills" : "Add your skills in Settings"}</span>}</div>
+            <div className="flex flex-wrap gap-1">{have.length ? have.map((s: Dict) => <span key={s.skill} className="chip bg-brand-soft text-brand-strong border-brand/20">{s.skill}</span>) : <span className="text-ink-muted text-[12.5px]">{a.has_profile ? "None of the listed skills" : "Add your skills under Me"}</span>}</div>
           </div>
           <div>
             <div className="eyebrow mb-2">Not in your profile</div>
@@ -366,7 +371,7 @@ function Reminders({ app, onChanged }: { app: Dict; onChanged: () => void }) {
         {app.reminders.length === 0 && <div className="p-4 text-ink-muted text-[13px]">No reminders for this application.</div>}
         {app.reminders.map((r: Dict) => (
           <div key={r.id} className="flex items-center gap-3 px-3 py-2.5">
-            <input type="checkbox" checked={!!r.done} onChange={() => toggle(r)} className="accent-[#0e7a5c] w-4 h-4" aria-label="Done" />
+            <input type="checkbox" checked={!!r.done} onChange={() => toggle(r)} className="accent-brand w-4 h-4" aria-label="Done" />
             <div className={cls("flex-1 min-w-0", r.done && "line-through text-ink-faint")}>
               <div className="text-[13.5px] font-medium truncate">{r.title}</div>
               <div className="text-[12px] text-ink-muted num">{fmtDate(r.due_date)} · {relDays(r.due_date)}</div>
@@ -379,3 +384,97 @@ function Reminders({ app, onChanged }: { app: Dict; onChanged: () => void }) {
   );
 }
 
+/** A saved job (not applied yet): same layout as an application, with Prepare first. */
+export function SavedDrawer({ id, onClose }: { id: number | null; onClose: () => void }) {
+  const { refresh, toast, version, openApp } = useApp();
+  const [o, setO] = useState<Dict | null>(null);
+  const [tab, setTab] = useState<"prepare" | "details">("prepare");
+  const [edit, setEdit] = useState<Dict>({});
+  const load = () => id && api.get(`/api/opportunities/${id}`).then((x) => {
+    setO(x); setEdit({ position: x.position, company: x.company, job_description: x.job_description ?? "", deadline: x.deadline ?? "", url: x.url ?? "", notes: x.notes ?? "", location: x.location ?? "",
+      workload: x.workload ?? "", contract: x.contract ?? "" });
+  }).catch(() => onClose());
+  useEffect(() => { setO(null); setTab("prepare"); if (id) load(); }, [id]);
+  useEffect(() => { if (id && o) load(); }, [version]);
+  async function save() {
+    try { await api.patch(`/api/opportunities/${id}`, edit); toast("Saved"); refresh(); } catch (e: any) { toast(e.message, "error"); }
+  }
+  async function apply() {
+    try { const r = await api.post(`/api/opportunities/${id}/apply`); toast("Moved to Applied. Good luck!"); refresh(); openApp(r.application_id); }
+    catch (e: any) { toast(e.message, "error"); }
+  }
+  async function remove() {
+    try { await api.del(`/api/opportunities/${id}`); toast("Removed"); refresh(); onClose(); } catch (e: any) { toast(e.message, "error"); }
+  }
+  async function setSkipped(skip: boolean) {
+    try {
+      await api.post("/api/opportunities/batch", { ids: [id], action: skip ? "archive" : "restore" });
+      toast(skip ? "Skipped. Find it under Inbox → Skipped." : "Back in your Inbox"); refresh(); if (skip) onClose(); else load();
+    } catch (e: any) { toast(e.message, "error"); }
+  }
+  const skipped = o?.status === "archived";
+  const st = stageStyle("Saved");
+  return (
+    <Drawer open={id !== null} onClose={onClose}>
+      {!o ? <div className="p-6 space-y-3"><Skeleton className="h-5 w-40" /><Skeleton className="h-8 w-72" /><Skeleton className="h-40 w-full" /></div> : (
+        <>
+          <header className="px-6 pt-5 pb-4 border-b border-line">
+            <div className="flex items-start gap-3">
+              <Monogram name={o.company} size={44} className="mt-0.5 text-[16px]" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] text-ink-muted font-medium">{o.company}{o.location && <span className="text-ink-faint"> · {o.location}</span>}</div>
+                <h2 className="text-[20px] font-semibold tracking-[-0.01em] leading-snug mt-0.5">{o.position}</h2>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <span className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[12px] font-medium" style={{ background: st.bg, color: st.text, boxShadow: `inset 0 0 0 1px ${st.ring}` }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: st.dot }} />{skipped ? "Skipped" : "Inbox"}
+                  </span>
+                  {o.deadline && <span className="chip"><CalendarClock size={11} />Deadline {fmtDate(o.deadline, false)} · {relDays(o.deadline)}</span>}
+                  {o.location && <span className="chip"><MapPin size={11} />{o.location}</span>}
+                  {o.workload && <span className="chip">{o.workload}</span>}
+                  {o.contract && <span className="chip">{o.contract}</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                {o.url && <a className="btn-ghost btn-sm" href={o.url} target="_blank" rel="noreferrer" title="Open posting"><ExternalLink size={15} /></a>}
+                <DeleteButton onConfirm={remove} />
+                <button className="btn-ghost btn-sm" onClick={onClose} aria-label="Close"><X size={17} /></button>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-canvas px-3 py-2 text-[12.5px] text-ink-soft">
+              <span>{skipped ? "You skipped this job." : "Not applied yet. Prepare below, then mark it as applied or skip it."}</span>
+              <span className="flex items-center gap-1.5 shrink-0">
+                {skipped ? <button className="btn-secondary btn-sm" onClick={() => setSkipped(false)}>Restore</button>
+                  : <button className="btn-ghost btn-sm" onClick={() => setSkipped(true)}><X size={13} /> Skip</button>}
+                <button className="btn-primary btn-sm" onClick={apply}><BriefcaseBusiness size={13} /> I've applied</button>
+              </span>
+            </div>
+          </header>
+          <div className="px-6">
+            <Tabs value={tab} onChange={setTab} tabs={[
+              { id: "prepare", label: <span className="inline-flex items-center gap-1"><ListChecks size={14} /> Prepare</span> },
+              { id: "details", label: "Details & description" }]} />
+          </div>
+          <div className="flex-1 overflow-y-auto scroll-thin px-6 py-5">
+            {tab === "prepare" && <PreparePanel kind="opportunity" refId={o.id} hasJd={(o.job_description ?? "").trim().length >= 80} onApply={apply} info={o} />}
+            {tab === "details" && (
+              <div className="space-y-3">
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <Field label="Position"><input className="input" value={edit.position} onChange={(e) => setEdit({ ...edit, position: e.target.value })} /></Field>
+                  <Field label="Company"><input className="input" value={edit.company} onChange={(e) => setEdit({ ...edit, company: e.target.value })} /></Field>
+                  <Field label="Location"><input className="input" value={edit.location} onChange={(e) => setEdit({ ...edit, location: e.target.value })} /></Field>
+                  <Field label="Deadline"><input type="date" className="input num" value={edit.deadline} onChange={(e) => setEdit({ ...edit, deadline: e.target.value })} /></Field>
+                  <Field label="Workload"><input className="input" value={edit.workload} placeholder="e.g. 80–100%" onChange={(e) => setEdit({ ...edit, workload: e.target.value })} /></Field>
+                  <Field label="Contract"><Select value={edit.contract} onChange={(v) => setEdit({ ...edit, contract: v })} options={["Permanent", "Fixed-term", "Internship", "Freelance", "Apprenticeship"]} placeholder="Not recorded" /></Field>
+                </div>
+                <Field label="Link"><input className="input" value={edit.url} onChange={(e) => setEdit({ ...edit, url: e.target.value })} /></Field>
+                <Field label="Notes"><input className="input" value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></Field>
+                <Field label="Job description"><textarea className="textarea h-72 text-[13px]" value={edit.job_description} onChange={(e) => setEdit({ ...edit, job_description: e.target.value })} /></Field>
+                <div className="flex justify-end"><button className="btn-primary" onClick={save}><FileText size={15} /> Save</button></div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </Drawer>
+  );
+}

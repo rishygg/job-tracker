@@ -12,7 +12,6 @@ import re
 
 from .cvtext import BULLET, SECTION_WORDS
 from .dimensions import DimensionInferer
-from .llm import Ollama
 
 # Bump when extraction improves; existing evidence banks are rebuilt automatically (edits are kept).
 EXTRACTOR_VERSION = 2
@@ -163,41 +162,4 @@ def extract(cv: str, inferer: DimensionInferer) -> list[dict]:
                 r["duplicate_of"] = prev["text"][:80]
                 break
         out.append(r)
-    return out
-
-
-ENRICH_SYSTEM = """For each CV line E#, describe briefly and factually:
-"kind": achievement (a result), responsibility (a duty), qualification, skill, project or publication;
-"did": what the candidate personally did, under 12 words;
-"outcome": the result if stated, else "";
-Do not add facts that are not in the line."""
-
-ENRICH_SCHEMA = {
-    "type": "object",
-    "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {
-        "id": {"type": "string"},
-        "kind": {"type": "string", "enum": ["achievement", "responsibility", "qualification", "coursework", "skill", "project", "publication", "summary", "personal"]},
-        "did": {"type": "string"}, "outcome": {"type": "string"}}, "required": ["id", "kind", "did"]}}},
-    "required": ["items"],
-}
-
-
-def enrich(records: list[dict], client: Ollama) -> list[dict]:
-    """One-time AI pass: what the person did and the outcome, per record (in batches)."""
-    out = [dict(r) for r in records]
-    for start in range(0, len(out), 25):
-        batch = out[start:start + 25]
-        listing = "\n".join(f"E{start + i + 1} ({r.get('section', '')}): {r['text'][:240]}" for i, r in enumerate(batch))
-        raw = client.chat_json(ENRICH_SYSTEM, listing, ENRICH_SCHEMA, num_predict=60 + 45 * len(batch))
-        for item in raw.get("items", []):
-            try:
-                idx = int(str(item.get("id", "")).strip().upper().lstrip("E")) - 1
-            except ValueError:
-                continue
-            if 0 <= idx < len(out):
-                if item.get("kind"):
-                    out[idx]["kind"] = item["kind"]
-                out[idx]["did"] = (item.get("did") or "")[:160]
-                out[idx]["outcome"] = (item.get("outcome") or "")[:160]
-                out[idx]["enriched"] = True
     return out

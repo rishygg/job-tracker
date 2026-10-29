@@ -1,0 +1,92 @@
+Capgemini Suisse SA
+Blagnac, Aix-en-Provence, Toulouse
+
+Save
+
+Apply
+8 hours ago
+
+Data Engineer - INTERNSHIP
+27 October 2026
+100%
+Permanent position
+Blagnac, Aix-en-Provence, Toulouse
+
+Check my match for this job
+Compare your CV with the requirements
+Results are AI-generated
+
+Job summary
+
+Hide
+At Sogeti, technology flows through our veins. Join us to unleash your potential!
+
+Tasks
+Identify data needs and business use cases effectively.
+Design and implement data architectures for optimal performance.
+Develop, optimize, and maintain data pipelines efficiently.
+Skills
+M2 in Data Engineering; knowledge of software development principles.
+Strong teamwork and autonomy skills required for problem-solving.
+Proficiency in English (minimum B2 level) is a must.
+AI Generated Summary
+
+Is this helpful?
+
+This job ad was AI-translated from French.
+See original
+About the job
+At Sogeti, technology runs through our veins. It is this interest in technology that guides us daily and is reflected in our slogan "Made In Tech". Thanks to our shared passion for technology, our entrepreneurial culture, and the importance we place on continuous training, we will do everything possible to help you unlock your full potential.
+
+Your missions
+
+As a Data Engineer, you will have the following tasks:
+
+Identifying data needs and business use cases (collection, transformation, exploitation of data)
+Designing and implementing data architectures (data pipelines, data lake, data warehouse)
+Developing, optimising and maintaining data pipelines (ETL / ELT)
+Ensuring the quality, reliability and availability of data (data quality, monitoring, performance)
+Automating data processing and deployments (CI/CD, industrialisation)
+Collaborating with business, data and IT teams to enhance data value
+Participating in acceptance phases, testing and production deployment
+Presenting data solutions and results to stakeholders
+Working with the stack: Python, SQL, Spark, Talend, Azure / AWS / GCP, Big Data tools
+This description is not exhaustive. It may evolve depending on your experience, ongoing projects and your expectations.
+
+Your profile
+
+Currently studying for a Master 2 in Data Engineering
+Knowledge of software development principles and best practices
+Proficiency in AI
+Team spirit
+Autonomy and proactivity in problem-solving
+Fluency in English (minimum B2 level)
+Some reasons to join us
+
+A local player: we work for leading companies and are a preferred partner for local stakeholders. By joining our agile teams, you will contribute to a unique local approach serving our clients.
+100% certified: you benefit from a certification path tailored to your role and level. You are supported by experts and progress at your own pace thanks to structured self-training and a collective dynamic that accelerates your development.
+Leading in emerging technologies: as the "technologist" actor of the Group, our mission is to explore and test new technologies to uncover their potential and find business uses. By joining us, you contribute to this innovation mission alongside pioneering teams such as those involved in adopting Microsoft Fabric.
+Publisher partnerships to innovate together: enjoy privileged access to their roadmaps, Beta versions of their products, as well as training materials and certification vouchers
+Our commitments and priorities
+
+The Capgemini group encourages an inclusive culture within a multicultural and disability-friendly environment. By joining us, you become part of a collective that values diversity, develops the potential of its talents, engages in solidarity initiatives with its partners, and is committed to reducing its environmental impact across all its sites and with its clients.
+
+Sogeti is part of the Capgemini group and supports organisations in implementing innovation as a local partner on a global scale. Combining agility and speed, Sogeti offers innovative solutions in testing, cloud and application development, all driven by AI, data and automation. More information at www.sogeti.com/fr
+
+Learn more about Capgemini
+
+When you join Capgemini, you don’t just start a new job. You become part of something bigger.
+
+Learn about how the recruitment process works – how to apply, where to follow your application, and next steps.
+
+To help you bring out the best of yourself during the interview process, we’ve got some great interview tips to share before the big day.
+
+Display original ad
+About the company
+Capgemini Suisse SA
+Blagnac, Aix-en-Provence, Toulouse
+
+See company profile
+Industry unspecified
+251 - 500 employees
+5 jobs

@@ -1,27 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { AlertTriangle, BookOpen, CalendarCheck, GraduationCap, Lightbulb, MessagesSquare, NotebookPen, Plus, Repeat, Target, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { api, type Dict } from "../api";
 import { useApi, useApp } from "../store";
 import { cls, fmtDate, today } from "../lib";
 import { EmptyState, Field, Modal, PageHeader, Select, Skeleton, Tabs } from "../components/ui";
 import { PracticeTab } from "../components/Practice";
-import { NotesTab, SkillsTab, StoriesTab } from "../components/CareerExtras";
+import { NotesTab, SkillsTab } from "../components/CareerExtras";
 import { CAT_COLOR, Rating, useCareerMeta } from "../components/careerShared";
 
-type Tab = "journal" | "practice" | "stories" | "skills" | "notes";
+type Tab = "journal" | "practice" | "skills" | "notes";
 const TABS: { id: Tab; label: string; icon: typeof BookOpen }[] = [
   { id: "journal", label: "Interview journal", icon: MessagesSquare },
   { id: "practice", label: "Practice", icon: GraduationCap },
-  { id: "stories", label: "Story bank", icon: BookOpen },
   { id: "skills", label: "Skills report", icon: Target },
   { id: "notes", label: "Industry notes", icon: Lightbulb },
 ];
 
 export default function Career() {
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") as Tab) || "journal";
+  const raw = params.get("tab");
+  const tab = (raw as Tab) || "journal";
   const setTab = (t: Tab) => { const p = new URLSearchParams(params); p.set("tab", t); p.delete("log"); p.delete("date"); setParams(p, { replace: true }); };
+  if (raw === "stories") return <Navigate to="/me?tab=stories" replace />;
   return (
     <div className="max-w-[1180px]">
       <PageHeader title="Career development" subtitle="Learn from every interview, practise what you find hardest, and close the skill gaps that matter for the roles you want." />
@@ -29,7 +30,6 @@ export default function Career() {
       <div className="mt-5">
         {tab === "journal" && <Journal />}
         {tab === "practice" && <PracticeTab />}
-        {tab === "stories" && <StoriesTab />}
         {tab === "skills" && <SkillsTab />}
         {tab === "notes" && <NotesTab />}
       </div>
@@ -58,8 +58,8 @@ function Journal() {
     <div className="grid lg:grid-cols-[1fr_360px] gap-5 items-start">
       <div className="space-y-4 min-w-0">
         {data?.to_log?.length > 0 && (
-          <section className="card p-4 border-[#c9d7f4] bg-[#f6f8fd]">
-            <div className="flex items-center gap-2 text-[13px] font-semibold"><NotebookPen size={15} className="text-[#3d6fd6]" />Not in your journal yet</div>
+          <section className="card p-4 border-info-line bg-info-soft">
+            <div className="flex items-center gap-2 text-[13px] font-semibold"><NotebookPen size={15} className="text-info-bright" />Not in your journal yet</div>
             <ul className="mt-2 space-y-1.5">
               {data!.to_log.map((x: Dict) => (
                 <li key={`${x.application_id}-${x.date}`} className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
@@ -75,7 +75,7 @@ function Journal() {
           <button className="btn-primary" onClick={() => setEditing({ date: today(), questions: [] })}><Plus size={15} /> Log interview</button>
         </div>
         {!ivs.length ? (
-          <div className="card"><EmptyState icon={<MessagesSquare size={20} />} title="Log your first interview"
+          <div className="card"><EmptyState art="chat" title="Log your first interview"
             action={<button className="btn-primary" onClick={() => setEditing({ date: today(), questions: [] })}><Plus size={15} /> Log interview</button>}>
             Right after an interview, note the questions, how you think each answer went, what was hard and any feedback. After a few, recurring themes appear here and your practice plan adapts to them.
           </EmptyState></div>
@@ -103,12 +103,12 @@ function InterviewCard({ iv, onOpen }: { iv: Dict; onOpen: () => void }) {
           </div>
           <div className="flex items-center gap-2 text-[12px]">
             {iv.rating && <span className="num text-ink-soft">Felt <b>{iv.rating}/5</b></span>}
-            {iv.outcome && <span className={cls("chip h-5 text-[10.5px]", iv.outcome === "Passed" && "bg-[#e8f6f0] text-[#0a7a53] border-[#bfe6d6]", iv.outcome === "Rejected" && "bg-[#f2f3f5]")}>{iv.outcome}</span>}
+            {iv.outcome && <span className={cls("chip h-5 text-[10.5px]", iv.outcome === "Passed" && "bg-ok-soft text-ok border-ok-line", iv.outcome === "Rejected" && "bg-neutral-soft")}>{iv.outcome}</span>}
           </div>
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[12px] text-ink-soft">
           <span>{iv.questions.length} question{iv.questions.length === 1 ? "" : "s"}</span>
-          {low > 0 && <span className="text-[#a35f00]">{low} rated weak</span>}
+          {low > 0 && <span className="text-warn">{low} rated weak</span>}
           {iv.struggled && <span className="truncate max-w-[420px]">Hard: {iv.struggled}</span>}
         </div>
       </button>
@@ -147,14 +147,14 @@ function Themes({ th }: { th?: Dict }) {
         <ul className="space-y-1.5">
           {th.categories.map((c: Dict) => (
             <li key={c.category} className="text-[12.5px]">
-              <div className="flex justify-between"><span>{c.category}</span><span className="num text-ink-muted">{c.count}{c.avg_rating !== null ? <> · avg <b className={cls(c.avg_rating < 3 ? "text-[#a35f00]" : "text-ink-soft")}>{c.avg_rating}</b>/5</> : null}</span></div>
-              <div className="h-1.5 rounded-full bg-canvas mt-1 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${(c.count / maxCat) * 100}%`, background: CAT_COLOR[c.category] ?? "#8f97a6" }} /></div>
+              <div className="flex justify-between"><span>{c.category}</span><span className="num text-ink-muted">{c.count}{c.avg_rating !== null ? <> · avg <b className={cls(c.avg_rating < 3 ? "text-warn" : "text-ink-soft")}>{c.avg_rating}</b>/5</> : null}</span></div>
+              <div className="h-1.5 rounded-full bg-canvas mt-1 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${(c.count / maxCat) * 100}%`, background: CAT_COLOR[c.category] ?? "rgb(var(--ink-faint))" }} /></div>
             </li>
           ))}
         </ul>
         {th.rating_trend !== null && (
           <div className="mt-3 text-[12px] flex items-center gap-1.5 text-ink-soft">
-            {th.rating_trend >= 0 ? <TrendingUp size={13} className="text-[#0e9a69]" /> : <TrendingDown size={13} className="text-[#a35f00]" />}
+            {th.rating_trend >= 0 ? <TrendingUp size={13} className="text-ok-bright" /> : <TrendingDown size={13} className="text-warn" />}
             How interviews feel: {th.rating_trend >= 0 ? "+" : ""}{th.rating_trend} points, recent half vs earlier half
           </div>
         )}
@@ -173,7 +173,7 @@ function Themes({ th }: { th?: Dict }) {
         <section className="card p-4">
           <div className="eyebrow mb-2 flex items-center gap-1.5"><AlertTriangle size={12} />Asked about, no story yet</div>
           <div className="flex flex-wrap gap-1">{th.story_gaps.map((g: Dict) => <span key={g.competency} className="chip h-6 border-dashed border-line-strong">{g.competency} <span className="num text-ink-faint">{g.asked}×</span></span>)}</div>
-          <p className="text-[11.5px] text-ink-muted mt-2">Add a story for these in the Story bank so you're not improvising.</p>
+          <p className="text-[11.5px] text-ink-muted mt-2">Add a story for these in your <Link to="/me?tab=stories" className="text-brand hover:underline">story bank</Link> so you're not improvising.</p>
         </section>
       )}
       {th.feedback?.length > 0 && (

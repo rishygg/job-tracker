@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import io
+import re
 import json
-import threading
 import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -21,17 +21,21 @@ from pydantic import BaseModel
 from . import analysis as A
 from . import notifications
 from . import career as CR
+from . import fun as FUN
+from . import posting as P
+from . import entries as EN
+from . import prompts as PR
+from . import digest as DG
 from .cvtext import extract_text
 from . import builder as B
-from .evidence import enrich as enrich_evidence, extract as extract_evidence
-from .fit import (analyse_keywords, analyse_llm, cover_letter_llm, cv_tips_keywords, cv_tips_llm, tailoring_guide,
-                  target_cv_llm, text_hash)
-from .llm import LLMError, Ollama, use_progress
+from .evidence import extract as extract_evidence
+from .fit import analyse_keywords, text_hash
+from .llm import Ollama, use_progress
 from .aijobs import AIJobs, BATCH, INTERACTIVE
-from .categorise import Categoriser, save_yaml
+from .categorise import Categoriser
 from .dimensions import DimensionInferer
 from .importer import export_excel, import_into, list_sheets, read_tracker
-from .service import CATEGORIES_YAML, DIMENSIONS_YAML, SAMPLE, Service, apply_filters
+from .service import CATEGORIES_YAML, DIMENSIONS_YAML, REACHED_ORDER, SAMPLE, Service, apply_filters
 from .storage import CLOSED, PIPELINE, SOURCES, STAGES
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -70,6 +74,8 @@ class AppIn(BaseModel):
     cv_version: str | None = None
     fit_rating: int | None = None
     salary: str | None = None
+    workload: str | None = None
+    contract: str | None = None
     role_area: str | None = None
     region: str | None = None
     seniority: str | None = None
@@ -150,6 +156,8 @@ class OppIn(BaseModel):
     job_description: str | None = None
     deadline: str | None = None
     notes: str | None = None
+    workload: str | None = None
+    contract: str | None = None
     status: str | None = None
     fit: dict | None = None
 
@@ -205,8 +213,48 @@ class NoteIn(BaseModel):
     link: str | None = None
 
 
+class EntryIn(BaseModel):
+    section: str | None = None
+    title: str | None = None
+    org: str | None = None
+    location: str | None = None
+    start: str | None = None
+    end: str | None = None
+    details: str | None = None
+    entries: list[dict] | None = None
+    text: str | None = None
+    replace: bool | None = None
+    ids: list[int] | None = None
+
+
+class RankIn(BaseModel):
+    items: list[dict] | None = None
+    text: str | None = None
+    goals: str | None = None
+    include_ranked: bool = False
+
+
+class OppBatchIn(BaseModel):
+    ids: list[int]
+    action: str  # archive | restore | delete | apply
+
+
+class BatchAppsIn(BaseModel):
+    ids: list[int]
+    action: str
+
+
+class UndoIn(BaseModel):
+    event_ids: list[int]
+
+
+class SeenIn(BaseModel):
+    ids: list[str]
+
+
 class AiQuestionsIn(BaseModel):
     application_id: int
+    kind: str | None = None
 
 
 class EvidenceIn(BaseModel):
@@ -263,6 +311,13 @@ def create_app(service: Service | None = None) -> FastAPI:
     def filtered(request: Request) -> pd.DataFrame:
         return apply_filters(snap().df, dict(request.query_params))
 
+    _places: list = []
+
+    def places():
+        if not _places:
+            _places.extend(FUN.load_places())
+        return _places
+
     def get_app_row(app_id: int) -> pd.Series:
         df = snap().df
         rows = df[df["id"] == app_id]
@@ -300,7 +355,12 @@ def create_app(service: Service | None = None) -> FastAPI:
     @app.get("/api/applications")
     def list_applications(request: Request):
         d = filtered(request).sort_values(["date_applied", "id"], ascending=False)
-        return {"items": records(d, LIST_FIELDS), "total": int(len(snap().df))}
+        items = records(d, LIST_FIELDS)
+        ranks = svc.store.results("application", "chat_rank")
+        for it in items:
+            rk = ranks.get(it["id"])
+            it["rank"] = rk["result"] if rk else None
+        return {"items": items, "total": int(len(snap().df))}
 
     @app.get("/api/applications/{app_id}")
     def get_application(app_id: int):
@@ -395,9 +455,9 @@ def create_app(service: Service | None = None) -> FastAPI:
         get_app_row(app_id)
         if body.stage not in STAGES:
             raise HTTPException(422, f"Unknown stage {body.stage}")
-        svc.store.move_stage(app_id, body.stage, body.date or date.today(), body.note or None)
+        eid = svc.store.move_stage(app_id, body.stage, body.date or date.today(), body.note or None)
         changed()
-        return get_application(app_id)
+        return {**get_application(app_id), "event_id": eid}
 
 
     @app.patch("/api/events/{event_id}")
@@ -423,20 +483,33 @@ def create_app(service: Service | None = None) -> FastAPI:
         return {"ok": True}
 
 
+    def seen_before(company: str | None, position: str | None) -> list[dict]:
+        """The same role already in the Inbox or skipped earlier."""
+        if not (company or "").strip() or not (position or "").strip():
+            return []
+        o = svc.store.opportunities()
+        o = o[(o["status"] != "applied") & (o["company"].str.lower() == company.strip().lower())
+              & (o["position"].str.lower() == position.strip().lower())]
+        return records(o, ["id", "status", "created_at"])
+
     @app.post("/api/parse")
     def parse(body: ParseIn):
         """Live preview of what will be inferred for a new application."""
         s = snap()
         inf = s.inferer.infer_all(body.position, body.company, body.job_description)
-        mine = {x.lower() for x in s.settings["my_skills"]}
+        mine = {x.lower() for x in s.settings["my_skills"]} | {k.lower() for k in s.inferer.analyse_jd(profile_material()).skills}
         skills = inf["jd_skills"]
         work_mode = "Remote" if "remote" in (body.location or "").lower() else inf["work_mode"]
         df = s.df
         dup = df[(df["company"].str.lower() == (body.company or "").strip().lower())
                  & (df["position"].str.lower() == (body.position or "").strip().lower())] if body.company else df.iloc[0:0]
         prev = df[df["company"].str.lower() == (body.company or "").strip().lower()] if body.company else df.iloc[0:0]
-        guess = guess_title_company(body.job_description or "")
+        ex = P.extract(body.job_description or "", None, places())
+        cleaned, removed = P.clean(body.job_description or "")
+        guess = {k: ex[k] for k in ("position", "company", "location", "workload", "contract", "deadline")}
         return {
+            "confidence": ex["confidence"], "posting_language": ex["language"],
+            "cleaned": cleaned if sum(removed.values()) >= 3 else None, "removed": removed,
             "role_area": s.cat.role_area(body.position) if body.position else None,
             "region": s.cat.region(body.location) if body.location else None,
             "seniority": inf["seniority"], "industry": inf["industry"], "company_size": inf["company_size"],
@@ -445,6 +518,7 @@ def create_app(service: Service | None = None) -> FastAPI:
             "skills": [{"skill": k, "have": k.lower() in mine} for k in skills],
             "match": (sum(k.lower() in mine for k in skills) / len(skills)) if (skills and mine) else None,
             "duplicate": records(dup, ["id", "position", "status", "date_applied"]),
+            "seen": seen_before(body.company, body.position),
             "same_company": records(prev, ["id", "position", "status", "date_applied"])[:5],
             "guess": guess,
             "uncertain": [k for k, v in {"seniority": inf["seniority"] == "Mid / unspecified",
@@ -539,10 +613,10 @@ def create_app(service: Service | None = None) -> FastAPI:
         elif item is None:
             raise HTTPException(404, "This item is no longer open.")
         elif body.action == "mark_ghosted":
-            svc.store.move_stage(item["application_id"], "Ghosted", date.today(), "No reply")
+            eid = svc.store.move_stage(item["application_id"], "Ghosted", date.today(), "No reply")
         elif body.action == "followed_up":
             row = get_app_row(item["application_id"])
-            svc.store.move_stage(item["application_id"], row["status"], date.today(), "Followed up")
+            eid = svc.store.move_stage(item["application_id"], row["status"], date.today(), "Followed up")
         elif body.action == "done":
             if item["kind"] == "reminder":
                 svc.store.update_reminder(item["reminder_id"], done=True)
@@ -551,7 +625,18 @@ def create_app(service: Service | None = None) -> FastAPI:
         else:
             raise HTTPException(422, "Unknown action")
         changed()
-        return {"ok": True}
+        return {"ok": True, "event_ids": [eid] if "eid" in locals() else []}
+
+    @app.post("/api/priorities/ghost-all")
+    def ghost_all():
+        """Mark every 'no reply in N days' item as ghosted at once."""
+        s = snap()
+        ids = []
+        for i in notifications.build(svc.store, s.df, s.settings):
+            if i["kind"] == "ghost":
+                ids.append(svc.store.move_stage(i["application_id"], "Ghosted", date.today(), "No reply"))
+        changed()
+        return {"count": len(ids), "event_ids": ids}
 
     # ------------------------------------------------------------ reminders
 
@@ -630,14 +715,14 @@ def create_app(service: Service | None = None) -> FastAPI:
         for k, v in body.items():
             if k in svc.settings():
                 svc.store.set_setting(k, v)
-        if "cv_text" in body and (body["cv_text"] or "") != old_cv:
+        if "cv_text" in body and (body["cv_text"] or "") != old_cv and not svc.store.rows("entries"):
             svc.store.replace_cv_evidence(extract_evidence(body["cv_text"] or "", snap().inferer))
         changed()
         return svc.settings()
 
     @app.get("/api/rules/{name}")
     def get_rules(name: str):
-        path = {"categories": CATEGORIES_YAML, "dimensions": DIMENSIONS_YAML}.get(name)
+        path = {"categories": CATEGORIES_YAML, "dimensions": DIMENSIONS_YAML, "ranking": PR.RANKING_YAML}.get(name)
         if not path:
             raise HTTPException(404)
         s = snap()
@@ -660,6 +745,9 @@ def create_app(service: Service | None = None) -> FastAPI:
             elif name == "dimensions":
                 DimensionInferer(cfg)
                 DIMENSIONS_YAML.write_text(body.text, encoding="utf-8")
+            elif name == "ranking":
+                PR.ranking_config(body.text)
+                PR.RANKING_YAML.write_text(body.text, encoding="utf-8")
             else:
                 raise HTTPException(404)
         except HTTPException:
@@ -721,25 +809,19 @@ def create_app(service: Service | None = None) -> FastAPI:
         changed()
         return {"ok": True}
 
-    # ------------------------------------------------------------ AI & fit
+    # ------------------------------------------------------------ profile, fit and AI
     def ollama_client(s=None) -> Ollama:
         st = svc.settings()
         return Ollama(st.get("ollama_url"), st.get("ollama_model"))
 
-    def resolve_engine(requested: str | None) -> tuple[str, Ollama | None, str | None]:
-        """Pick the engine: 'ollama' when asked or (auto and available), else 'keywords'."""
-        st = svc.settings()
-        want = (requested or st.get("ai_engine") or "auto").lower()
-        if want == "keywords":
-            return "keywords", None, None
+    def ready_client() -> Ollama:
+        """The configured Ollama model, or a 503 explaining what's missing."""
         client = ollama_client()
         status = client.status()
-        if status["available"] and status["model"]:
-            client.model = status["model"]
-            return "ollama", client, None
-        if want == "ollama":
+        if not (status["available"] and status["model"]):
             raise HTTPException(503, status.get("error") or "Ollama isn't available.")
-        return "keywords", None, status.get("error")
+        client.model = status["model"]
+        return client
 
     def source_for(kind: str, ref_id: int) -> dict:
         s = snap()
@@ -758,44 +840,82 @@ def create_app(service: Service | None = None) -> FastAPI:
                     "jd": clean(r.get("job_description")) or "", "region": s.cat.region(loc) if loc else None}
         raise HTTPException(404)
 
+    # Your profile: entries if you have them, otherwise the uploaded CV without contact details.
+    def entry_rows() -> list[dict]:
+        return svc.store.rows("entries", order="position, id")
+
+    def profile_material() -> str:
+        rows = entry_rows()
+        if rows:
+            return EN.to_text(rows)
+        from .evidence import PERSONAL
+        cv = svc.settings().get("cv_text") or ""
+        return "\n".join(ln for ln in cv.splitlines() if not PERSONAL.search(ln))
+
+    def has_profile() -> bool:
+        return len(profile_material().strip()) >= 50
+
+    def sync_evidence() -> None:
+        rows = entry_rows()
+        if rows:
+            svc.store.replace_entry_evidence(EN.evidence(rows, snap().inferer))
+
+    def ensure_evidence() -> list[dict]:
+        from .evidence import EXTRACTOR_VERSION
+        ev = svc.store.evidence()
+        if entry_rows():
+            if not ev:
+                sync_evidence()
+                ev = svc.store.evidence()
+            return ev
+        cv = svc.settings().get("cv_text") or ""
+        outdated = svc.store.get_setting("evidence_extractor", 0) != EXTRACTOR_VERSION
+        if (not ev or outdated) and len(cv.strip()) >= 50:
+            svc.store.replace_cv_evidence(extract_evidence(cv, snap().inferer))
+            svc.store.set_setting("evidence_extractor", EXTRACTOR_VERSION)
+            ev = svc.store.evidence()
+        return ev
+
     def fit_inputs_hash(jd: str) -> str:
         st = svc.settings()
-        return text_hash(st.get("cv_text"), jd, json.dumps(st.get("profile"), sort_keys=True))
+        return text_hash("fit-v10", profile_material(), jd, json.dumps(st.get("profile"), sort_keys=True))
 
-    def builder_hash(jd: str) -> str:
-        st = svc.settings()
-        return text_hash(fit_inputs_hash(jd), svc.store.evidence_version(), json.dumps(st.get("writing"), sort_keys=True))
-
-    def run_fit(company: str, position: str, jd: str, region: str | None, engine: str | None) -> dict:
-        st = svc.settings()
-        cv = st.get("cv_text") or ""
-        if len(cv.strip()) < 50:
-            raise HTTPException(422, "Add your CV in Settings → Profile first.")
+    def run_fit(company: str, position: str, jd: str, region: str | None, engine: str | None = None) -> dict:
+        """Instant, explainable fit from rules (no AI): requirements, evidence from your profile, blockers."""
+        if not has_profile():
+            raise HTTPException(422, "Add your experience under Me first.")
         if len((jd or "").strip()) < 80:
             raise HTTPException(422, "Paste the full job description first.")
-        eng, client, fallback_reason = resolve_engine(engine)
-        inf = snap().inferer
-        try:
-            if eng == "ollama":
-                res = analyse_llm(cv, jd, st["profile"], inf, client, region)
-            else:
-                res = analyse_keywords(cv, jd, st["profile"], inf, region)
-        except LLMError as e:
-            raise HTTPException(502, str(e))
-        res["fallback_reason"] = fallback_reason
+        res = analyse_keywords(profile_material(), jd, svc.settings()["profile"], snap().inferer, region)
         res["company"], res["position"], res["region"] = company, position, region
         return res
+
+    def quick_fit(kind: str, ref_id: int) -> None:
+        """Instant fit so every saved job is ranked right away; also queues background reading. Never raises."""
+        try:
+            src = source_for(kind, ref_id)
+            if len(src["jd"].strip()) < 80:
+                return
+            if has_profile():
+                res = run_fit(src["company"], src["position"], src["jd"], src["region"])
+                svc.store.save_result(kind, ref_id, "fit", res, "keywords", None, fit_inputs_hash(src["jd"]))
+            if svc.settings().get("digest_auto") and ollama_ok.get("ok"):
+                queue_digest([(kind, ref_id)])
+        except Exception:  # noqa: BLE001
+            pass
 
     @app.get("/api/ai/status")
     def ai_status():
         st = svc.settings()
         status = ollama_client().status()
-        return {**status, "engine": st.get("ai_engine", "auto"), "url": st.get("ollama_url"),
-                "speed": svc.store.get_setting("ai_speed"),
-                "has_cv": len((st.get("cv_text") or "").strip()) >= 50, "cv_filename": st.get("cv_filename")}
+        ollama_ok["ok"] = status["available"]
+        return {**status, "url": st.get("ollama_url"), "speed": svc.store.get_setting("ai_speed"),
+                "has_profile": has_profile(), "has_cv": has_profile(), "cv_filename": st.get("cv_filename"),
+                "entries": len(entry_rows()), "digest_auto": bool(st.get("digest_auto"))}
 
     @app.post("/api/profile/cv")
     async def upload_cv(file: UploadFile = File(...)):
+        """Read a CV file. With no entries yet, it's split into entries straight away for you to tidy."""
         data = await file.read()
         try:
             text = extract_text(file.filename, data)
@@ -803,26 +923,92 @@ def create_app(service: Service | None = None) -> FastAPI:
             raise HTTPException(422, str(e))
         svc.store.set_setting("cv_text", text)
         svc.store.set_setting("cv_filename", file.filename)
-        svc.store.replace_cv_evidence(extract_evidence(text, snap().inferer))
+        made = 0
+        if not entry_rows():
+            made = save_entries(EN.from_cv(text, snap().inferer))
+        else:
+            changed()
+        return {"chars": len(text), "filename": file.filename, "entries_created": made}
+
+    # ------------------------------------------------------------- entries (Me)
+    def save_entries(items: list[dict]) -> int:
+        start = len(entry_rows())
+        for i, e in enumerate(items):
+            data = {k: e.get(k) for k in ("section", "title", "org", "location", "start", "end", "details")}
+            data["section"] = data["section"] if data["section"] in EN.SECTIONS else "other"
+            svc.store.add_row("entries", **data, position=start + i)
+        sync_evidence()
         changed()
-        return {"chars": len(text), "filename": file.filename, "text": text}
+        return len(items)
 
-    def quick_fit(kind: str, ref_id: int) -> None:
-        """Instant keyword fit so every saved job is ranked right away. Never raises."""
-        try:
-            src = source_for(kind, ref_id)
-            if len((svc.settings().get("cv_text") or "").strip()) < 50 or len(src["jd"].strip()) < 80:
-                return
-            res = run_fit(src["company"], src["position"], src["jd"], src["region"], "keywords")
-            svc.store.save_result(kind, ref_id, "fit", res, "keywords", None, fit_inputs_hash(src["jd"]))
-        except Exception:  # noqa: BLE001
-            pass
+    @app.get("/api/entries")
+    def list_entries():
+        st = svc.settings()
+        return {"entries": entry_rows(), "sections": EN.SECTIONS, "has_cv": len((st.get("cv_text") or "").strip()) >= 50,
+                "cv_filename": st.get("cv_filename")}
 
-    # ------------------------------------------------------------- background AI jobs
-    # Every Ollama task runs in one worker (Ollama answers one request at a time anyway). Reviews you ask for jump
-    # ahead of batch ranking; the interface polls progress.
+    @app.post("/api/entries")
+    def add_entry(body: EntryIn):
+        data = body.model_dump(exclude={"entries", "text", "replace"})
+        if data.get("section") not in EN.SECTIONS:
+            raise HTTPException(422, "Unknown section")
+        save_entries([data])
+        return {"ok": True, "entries": entry_rows()}
+
+    @app.post("/api/entries/bulk")
+    def add_entries(body: EntryIn):
+        if body.replace:
+            for e in entry_rows():
+                svc.store.delete_row("entries", e["id"])
+        return {"created": save_entries(body.entries or []), "entries": entry_rows()}
+
+    @app.patch("/api/entries/{eid}")
+    def edit_entry(eid: int, body: EntryIn):
+        svc.store.update_row("entries", eid, **body.model_dump(exclude_unset=True, exclude={"entries", "text", "replace"}))
+        sync_evidence()
+        changed()
+        return {"ok": True}
+
+    @app.delete("/api/entries/{eid}")
+    def del_entry(eid: int):
+        svc.store.delete_row("entries", eid)
+        sync_evidence()
+        changed()
+        return {"ok": True}
+
+    @app.post("/api/entries/reorder")
+    def reorder_entries(body: EntryIn):
+        for i, eid in enumerate(body.ids or []):
+            svc.store.update_row("entries", int(eid), position=i)
+        sync_evidence()
+        changed()
+        return {"ok": True}
+
+    @app.post("/api/entries/split")
+    def split_entries(body: EntryIn):
+        """Draft entries from a pasted block; nothing is saved until you confirm."""
+        return {"drafts": EN.split_text(body.section or "experience", body.text or "")}
+
+    @app.post("/api/entries/from-cv")
+    def entries_from_cv(body: EntryIn):
+        cv = svc.settings().get("cv_text") or ""
+        if len(cv.strip()) < 50:
+            raise HTTPException(422, "Upload a CV first.")
+        drafts = EN.from_cv(cv, snap().inferer)
+        if body.replace is None:  # preview only
+            return {"drafts": drafts}
+        if body.replace:
+            for e in entry_rows():
+                svc.store.delete_row("entries", e["id"])
+        return {"created": save_entries(drafts), "entries": entry_rows()}
+
+    @app.get("/api/profile/text")
+    def profile_text():
+        return {"text": profile_material()}
+
+    # ------------------------------------------------------------- background jobs (Ollama)
     jobs = AIJobs(on_change=lambda: changed())
-    batch = {"since": 0.0}
+    ollama_ok: dict = {}
 
     def save_speed(client: Ollama | None) -> None:
         st = getattr(client, "last_stats", None)
@@ -835,9 +1021,10 @@ def create_app(service: Service | None = None) -> FastAPI:
                 st["prompt_tps"] = round(0.6 * st["prompt_tps"] + 0.4 * old["prompt_tps"], 1)
         svc.store.set_setting("ai_speed", st)
 
-    def submit_ai(key: str, label: str, task, priority: int = INTERACTIVE, group: str = "", meta: dict | None = None) -> dict:
+    def submit_ai(key: str, label: str, task, priority: int = INTERACTIVE, group: str = "", meta: dict | None = None,
+                  client: Ollama | None = None) -> dict:
         """Queue `task(client, progress)` as a background job using the configured Ollama model."""
-        eng, client, reason = resolve_engine("ollama")  # 503 if Ollama isn't available
+        client = client or ready_client()
 
         def fn(progress):
             with use_progress(progress):
@@ -847,15 +1034,6 @@ def create_app(service: Service | None = None) -> FastAPI:
                     save_speed(client)
         return jobs.submit(key, label, fn, priority=priority, group=group, meta=meta)
 
-    def fit_task(kind: str, ref_id: int):
-        def task(client, progress):
-            src = source_for(kind, ref_id)
-            progress.step("Reading the job against your CV", 1, 1, 350)
-            res = run_fit(src["company"], src["position"], src["jd"], src["region"], "ollama")
-            svc.store.save_result(kind, ref_id, "fit", res, res["method"], res.get("model"), fit_inputs_hash(src["jd"]))
-            return {"score": res.get("score"), "action": res["recommendation"]["action"]}
-        return task
-
     @app.get("/api/ai/jobs")
     def list_jobs(active: bool = False):
         return {"jobs": jobs.list(active_only=active), "speed": svc.store.get_setting("ai_speed")}
@@ -864,7 +1042,7 @@ def create_app(service: Service | None = None) -> FastAPI:
     def get_job(job_id: int):
         j = jobs.get(job_id)
         if not j:
-            raise HTTPException(404, "This AI task is no longer known (the app may have restarted).")
+            raise HTTPException(404, "This task is no longer known (the app may have restarted).")
         return j
 
     @app.delete("/api/ai/jobs/{job_id}")
@@ -886,65 +1064,88 @@ def create_app(service: Service | None = None) -> FastAPI:
             return client.last_stats
         return submit_ai("benchmark", "Speed test", task)
 
-    @app.post("/api/ai/queue")
-    def enqueue(body: QueueIn):
-        if not jobs.list(active_only=True, group="fit"):
-            batch["since"] = __import__("time").time()
-        out = None
-        for it in body.items:
-            kind, ref = it.get("kind"), int(it.get("ref_id"))
-            out = submit_ai(f"fit:{kind}:{ref}", it.get("label", "") or "Fit analysis", fit_task(kind, ref),
-                            priority=BATCH, group="fit", meta={"kind": kind, "ref_id": ref})
-        return ai_queue()
+    # Reading job descriptions in the background: one short summary per description, cached by content.
+    def all_jds() -> list[tuple[str, int, str, str]]:
+        out = []
+        df = snap().df
+        if not df.empty:
+            for r in df[df["has_jd"]].itertuples():
+                out.append(("application", int(r.id), r.company, clean(getattr(r, "job_description", None)) or ""))
+        for r in svc.store.opportunities("saved").itertuples():
+            jd = clean(r.job_description) or ""
+            if len(jd.strip()) >= 80:
+                out.append(("opportunity", int(r.id), r.company, jd))
+        return out
 
-    @app.get("/api/ai/queue")
-    def ai_queue():
-        js = [j for j in jobs.list(group="fit") if j["created"] >= batch["since"] - 1]
-        running = next((j for j in js if j["status"] == "running"), None)
-        pending = [j for j in js if j["status"] == "queued"]
-        return {"pending": len(pending), "done": sum(j["status"] == "done" for j in js),
-                "running": {"kind": running["meta"].get("kind"), "ref_id": running["meta"].get("ref_id"),
-                            "label": running["label"], "tokens": running["tokens"]} if running else None,
-                "errors": [{"label": j["label"], "error": j["error"]} for j in js if j["status"] == "error"][-3:],
-                "total": len([j for j in js if j["status"] != "cancelled"]),
-                "queued_ids": [f"{j['meta'].get('kind')}:{j['meta'].get('ref_id')}" for j in pending + ([running] if running else [])]}
+    def digest_done(kind: str, ref_id: int, jd: str) -> bool:
+        r = svc.store.get_result(kind, ref_id, "digest")
+        return bool(r and r["input_hash"] == DG.jd_hash(jd))
 
-    @app.delete("/api/ai/queue")
-    def cancel_queue():
-        jobs.cancel_group("fit")
-        return ai_queue()
+    def queue_digest(items: list[tuple[str, int]] | None = None) -> int:
+        client = ready_client()
+        todo = [(k, i, c, jd) for k, i, c, jd in all_jds() if (items is None or (k, i) in items) and not digest_done(k, i, jd)]
+        for kind, ref, company, jd in todo:
+            def task(cl, progress, kind=kind, ref=ref, jd=jd):
+                progress.step("Reading the job description", 1, 1, DG.EXPECTED_TOKENS)
+                res = DG.read(jd, cl)
+                svc.store.save_result(kind, ref, "digest", res, "ollama", cl.model, DG.jd_hash(jd))
+                return {"skills": len(res["skills"])}
+            submit_ai(f"digest:{kind}:{ref}", f"Reading · {company}", task, priority=BATCH, group="digest",
+                      meta={"kind": kind, "ref_id": ref}, client=client)
+        return len(todo)
 
+    def digest_status() -> dict:
+        jds = all_jds()
+        done = sum(1 for k, i, _, jd in jds if digest_done(k, i, jd))
+        active = jobs.list(active_only=True, group="digest")
+        sp = svc.store.get_setting("ai_speed") or {}
+        per = None
+        if sp.get("gen_tps"):
+            per = DG.EXPECTED_TOKENS / sp["gen_tps"] + (1200 / sp["prompt_tps"] if sp.get("prompt_tps") else 15)
+        left = len(jds) - done
+        return {"total": len(jds), "done": done, "queued": len(active), "seconds_each": round(per) if per else None,
+                "eta_minutes": round(left * per / 60) if per and left else None,
+                "running": next((j["label"] for j in active if j["status"] == "running"), None),
+                "auto": bool(svc.settings().get("digest_auto"))}
+
+    @app.get("/api/digest")
+    def get_digest():
+        return digest_status()
+
+    @app.post("/api/digest/run")
+    def run_digest():
+        n = queue_digest()
+        return {**digest_status(), "queued_now": n}
+
+    @app.delete("/api/digest/run")
+    def stop_digest():
+        jobs.cancel_group("digest")
+        return digest_status()
+
+    # ------------------------------------------------------------- fit
     @app.get("/api/fit/{kind}/{ref_id}")
     def get_fit(kind: str, ref_id: int):
         src = source_for(kind, ref_id)
         cached = svc.store.get_result(kind, ref_id, "fit")
+        rank = svc.store.get_result(kind, ref_id, "chat_rank")
+        base = {"has_jd": len(src["jd"].strip()) >= 80, "rank": rank["result"] if rank else None}
         if not cached:
-            return {"result": None, "has_jd": len(src["jd"].strip()) >= 80, "job": jobs.find(f"fit:{kind}:{ref_id}")}
-        return {**cached, "stale": cached["input_hash"] != fit_inputs_hash(src["jd"]), "has_jd": True,
-                "job": jobs.find(f"fit:{kind}:{ref_id}")}
-
+            return {"result": None, **base}
+        return {**cached, **base, "stale": cached["input_hash"] != fit_inputs_hash(src["jd"])}
 
     @app.post("/api/fit/{kind}/{ref_id}")
     def post_fit(kind: str, ref_id: int, body: FitRun):
         src = source_for(kind, ref_id)
-        if (body.engine or "").lower() == "ollama":
-            if len((svc.settings().get("cv_text") or "").strip()) < 50:
-                raise HTTPException(422, "Add your CV in Settings → Profile first.")
-            job = submit_ai(f"fit:{kind}:{ref_id}", f"Fit analysis · {src['position']}", fit_task(kind, ref_id),
-                            meta={"kind": kind, "ref_id": ref_id})
-            cached = svc.store.get_result(kind, ref_id, "fit")
-            return {**(cached or {"result": None}), "job": job, "has_jd": True}
-        res = run_fit(src["company"], src["position"], src["jd"], src["region"], body.engine)
-        svc.store.save_result(kind, ref_id, "fit", res, res["method"], res.get("model"), fit_inputs_hash(src["jd"]))
-        return {"result": res, "method": res["method"], "stale": False, "has_jd": True}
-
+        res = run_fit(src["company"], src["position"], src["jd"], src["region"])
+        svc.store.save_result(kind, ref_id, "fit", res, res["method"], None, fit_inputs_hash(src["jd"]))
+        rank = svc.store.get_result(kind, ref_id, "chat_rank")
+        return {"result": res, "method": res["method"], "stale": False, "has_jd": True, "rank": rank["result"] if rank else None}
 
     @app.post("/api/fit/check")
     def fit_check(body: FitCheck):
         s = snap()
         region = s.cat.region(body.location) if body.location else None
-        return run_fit(body.company or "", body.position or "", body.job_description, region, body.engine)
-
+        return run_fit(body.company or "", body.position or "", body.job_description, region)
 
     @app.post("/api/fit/batch")
     def fit_batch(body: BatchIn):
@@ -965,200 +1166,105 @@ def create_app(service: Service | None = None) -> FastAPI:
                 skipped += 1
                 continue
             try:
-                res = run_fit(src["company"], src["position"], src["jd"], src["region"], body.engine)
+                res = run_fit(src["company"], src["position"], src["jd"], src["region"])
             except HTTPException as e:
                 errors.append(str(e.detail))
-                if e.status_code in (422, 503):
-                    break
-                continue
-            svc.store.save_result(body.kind, int(i), "fit", res, res["method"], res.get("model"), fit_inputs_hash(src["jd"]))
+                break
+            svc.store.save_result(body.kind, int(i), "fit", res, res["method"], None, fit_inputs_hash(src["jd"]))
             done += 1
         return {"analysed": done, "skipped": skipped, "errors": errors[:3]}
 
-    def cover_letter_template(fit: dict, company: str, position: str) -> dict:
-        top = [s for s in fit.get("strengths", []) if s.get("evidence") and not str(s["evidence"]).startswith("Profile:")][:3]
-        paras = [{"text": f"I'm writing to apply for the {position or '[position]'} role at {company or '[company]'}. "
-                          "[One or two sentences on why this company and role, in your own words.]",
-                  "support": "partial", "sources": []}]
-        if top:
-            paras.append({"text": "In my recent work I " + "; ".join(
-                t["evidence"][0].lower() + t["evidence"][1:].rstrip(".") for t in top[:2]) + ". [Link this to what the role needs.]",
-                "support": "partial", "sources": [t["evidence"] for t in top[:2]]})
-        gaps = [g for g in fit.get("gaps", []) if g["severity"] == "high"][:1]
-        if gaps:
-            paras.append({"text": f"[Optional: address the gap honestly, e.g. how you're building: {gaps[0]['point']}.]",
-                          "support": "partial", "sources": []})
-        paras.append({"text": "[Close with your availability and a thank-you.]", "support": "partial", "sources": []})
-        return {"method": "template", "model": None, "greeting": "Dear Hiring Team,", "paragraphs": paras,
-                "closing": "Kind regards,\n[Your name]"}
+    # ------------------------------------------------------------- chat assistant: ranking and prompts
+    def rank_fields() -> list[dict]:
+        try:
+            return PR.ranking_config()["fields"]
+        except (ValueError, yaml.YAMLError):
+            return []  # a broken file never blocks ranking; Settings shows the error when you save it
 
+    @app.get("/api/rank/config")
+    def rank_config():
+        try:
+            cfg = PR.ranking_config()
+        except (ValueError, yaml.YAMLError) as e:
+            cfg = {"default_criteria": "", "fields": [], "error": str(e)}
+        return {**cfg, "goals": svc.settings().get("rank_goals") or ""}
 
-    @app.get("/api/docs/{kind}/{ref_id}/{doc}")
-    def get_doc(kind: str, ref_id: int, doc: str):
+    @app.post("/api/rank/prompt")
+    def rank_prompt(body: RankIn):
+        if not has_profile():
+            raise HTTPException(422, "Add your experience under Me first.")
+        inbox = svc.store.opportunities("saved")
+        ranks = svc.store.results("opportunity", "chat_rank")
+        ranked = sum(1 for i in inbox["id"].tolist() if i in ranks)
+        items = body.items or []
+        no_description = 0
+        if not items:  # default: everything in the Inbox that hasn't been ranked yet
+            for r in inbox.itertuples():
+                if r.id in ranks and not body.include_ranked:
+                    continue
+                if len((clean(r.job_description) or "").strip()) < 80:
+                    no_description += 1
+                    continue
+                items.append({"kind": "opportunity", "ref_id": int(r.id)})
+        jobs_ = []
+        for it in items:
+            src = source_for(it["kind"], int(it["ref_id"]))
+            jobs_.append({"code": PR.code(it["kind"], int(it["ref_id"])), **src})
+        if body.goals is not None:  # your criteria are kept privately in the database, prefilled next time
+            svc.store.set_setting("rank_goals", body.goals)
+        chunks = PR.split_jobs(jobs_)
+        fields = rank_fields()
+        parts = []
+        for n, chunk in enumerate(chunks, 1):
+            text = PR.rank_prompt(profile_material(), svc.settings()["profile"], chunk, body.goals or "", fields, (n, len(chunks)))
+            parts.append({"prompt": text, "count": len(chunk), "chars": len(text), "codes": [j["code"] for j in chunk]})
+        svc.store.set_setting("rank_parts", [p["codes"] for p in parts])
+        svc.store.set_setting("rank_last_codes", [c for p in parts for c in p["codes"]])
+        return {"prompt": parts[0]["prompt"] if parts else "", "parts": parts, "count": len(jobs_),
+                "chars": sum(p["chars"] for p in parts), "skipped": 0, "ranked": ranked, "no_description": no_description}
+
+    @app.post("/api/rank/import")
+    def rank_import(body: RankIn):
+        parsed = PR.parse_ranking(body.text or "", rank_fields())
+        if not parsed:
+            raise HTTPException(422, "Couldn't find any rankings in that text. Paste the assistant's whole reply, "
+                                     "including the job codes like S7 or A12.")
+        saved, unknown = [], []
+        stamp = datetime.now().isoformat(timespec="minutes")
+        for p in parsed:
+            try:
+                src = source_for(p["kind"], p["ref_id"])
+            except HTTPException:
+                unknown.append(p["code"])
+                continue
+            svc.store.save_result(p["kind"], p["ref_id"], "chat_rank", {**p, "at": stamp}, "chat", None, None)
+            saved.append({**p, "company": src["company"], "position": src["position"]})
+        changed()
+        got = {p["code"] for p in parsed}
+        # Which prompt was this reply for? The part whose job codes it overlaps most (replies come back one part at a time).
+        parts = svc.settings().get("rank_parts") or []
+        asked = max(parts, key=lambda c: len(set(c) & got), default=[]) if parts else []
+        if not (set(asked) & got):
+            asked = svc.settings().get("rank_last_codes") or []
+        return {"saved": saved, "unknown": unknown, "not_in_reply": [c for c in asked if c not in got],
+                "unscored": [p["code"] for p in saved if p["score"] is None]}
+
+    @app.get("/api/prompts/{kind}/{ref_id}/{ptype}")
+    def job_prompt(kind: str, ref_id: int, ptype: str):
+        if ptype not in PR.CRITIQUES:
+            raise HTTPException(404)
+        if not has_profile():
+            raise HTTPException(422, "Add your experience under Me first.")
         src = source_for(kind, ref_id)
-        cached = svc.store.get_result(kind, ref_id, doc)
-        job = jobs.find(f"{doc}:{kind}:{ref_id}")
-        if not cached:
-            return {"result": None, "job": job}
-        h = builder_hash(src["jd"]) if doc in ("cv_builder", "letter_builder") else fit_inputs_hash(src["jd"])
-        return {**cached, "stale": cached["input_hash"] != h, "job": job}
-
-    def ensure_evidence() -> list[dict]:
-        from .evidence import EXTRACTOR_VERSION
-        ev = svc.store.evidence()
-        cv = svc.settings().get("cv_text") or ""
-        outdated = svc.store.get_setting("evidence_extractor", 0) != EXTRACTOR_VERSION
-        if (not ev or outdated) and len(cv.strip()) >= 50:
-            svc.store.replace_cv_evidence(extract_evidence(cv, snap().inferer))
-            svc.store.set_setting("evidence_extractor", EXTRACTOR_VERSION)
-            ev = svc.store.evidence()
-        return ev
-
-    def builder_inputs(kind: str, ref_id: int) -> dict:
-        src = source_for(kind, ref_id)
+        fit = (svc.store.get_result(kind, ref_id, "fit") or {}).get("result")
         st = svc.settings()
-        cv = st.get("cv_text") or ""
-        if len(cv.strip()) < 50:
-            raise HTTPException(422, "Add your CV in Settings → Profile first.")
-        if len(src["jd"].strip()) < 80:
-            raise HTTPException(422, "Paste the full job description first.")
-        evidence = ensure_evidence()
-        job = B.job_profile(src["jd"], snap().inferer)
-        cached_fit = svc.store.get_result(kind, ref_id, "fit")
-        fit = cached_fit["result"] if cached_fit else run_fit(src["company"], src["position"], src["jd"], src["region"], "keywords")
-        return {"src": src, "cv": cv, "evidence": evidence, "job": job, "fit": fit, "style": st.get("writing") or {}}
+        return {"title": PR.CRITIQUES[ptype][0],
+                "prompt": PR.job_prompt(ptype, profile_material(), st["profile"], src, fit, st.get("writing"))}
 
-    def save_builder(kind: str, ref_id: int, doc: str, res: dict, x: dict, reason: str | None = None) -> dict:
-        res["fallback_reason"] = reason
-        res["brief"] = B.brief("cv" if doc == "cv_builder" else "letter", res, x["job"], x["src"]["company"],
-                               x["src"]["position"], x["style"])
-        svc.store.save_result(kind, ref_id, doc, res, res.get("method"), res.get("model"), builder_hash(x["src"]["jd"]))
-        return res
-
-    def run_builder(kind: str, ref_id: int, doc: str, engine: str | None) -> dict:
-        x = builder_inputs(kind, ref_id)
-        eng, _client, reason = resolve_engine(engine or "keywords")
-        if eng == "ollama":
-            def task(client, progress):
-                y = builder_inputs(kind, ref_id)  # fresh inputs when the job actually starts
-                partial = lambda r: (save_builder(kind, ref_id, doc, r, y), progress.partial(), changed())  # noqa: E731
-                if doc == "cv_builder":
-                    res = B.cv_builder_ai(y["evidence"], y["job"], y["fit"], y["cv"], client, y["style"], progress, partial)
-                else:
-                    res = B.letter_builder_ai(y["evidence"], y["job"], y["fit"], client, y["src"]["company"],
-                                              y["src"]["position"], y["style"], progress, partial)
-                save_builder(kind, ref_id, doc, res, y)
-                return {"method": res.get("method")}
-            label = ("CV review" if doc == "cv_builder" else "Cover letter review") + f" · {x['src']['company']}"
-            job = submit_ai(f"{doc}:{kind}:{ref_id}", label, task, meta={"kind": kind, "ref_id": ref_id, "doc": doc})
-            cached = svc.store.get_result(kind, ref_id, doc)
-            if not cached:  # show the instant rule-based version while the AI works
-                res = (B.cv_builder_rules(x["evidence"], x["job"], x["fit"], x["cv"]) if doc == "cv_builder"
-                       else B.letter_builder_rules(x["evidence"], x["job"], x["fit"], x["src"]["company"], x["src"]["position"]))
-                save_builder(kind, ref_id, doc, res, x)
-                cached = svc.store.get_result(kind, ref_id, doc)
-            return {**cached, "stale": False, "job": job}
-        res = (B.cv_builder_rules(x["evidence"], x["job"], x["fit"], x["cv"]) if doc == "cv_builder"
-               else B.letter_builder_rules(x["evidence"], x["job"], x["fit"], x["src"]["company"], x["src"]["position"]))
-        save_builder(kind, ref_id, doc, res, x, reason)
-        return {"result": res, "stale": False, "job": jobs.find(f"{doc}:{kind}:{ref_id}")}
-
-    # ------------------------------------------------------------- evidence
     @app.get("/api/evidence")
     def list_evidence():
         ev = ensure_evidence()
-        st = svc.settings()
-        return {"items": ev, "has_cv": len((st.get("cv_text") or "").strip()) >= 50,
-                "counts": {k: sum(1 for e in ev if e["kind"] == k) for k in
-                           ("achievement", "responsibility", "qualification", "skill", "project", "publication", "summary")},
-                "enriched": sum(1 for e in ev if e["enriched"]), "confirmed": sum(1 for e in ev if e["confirmed"])}
-
-    @app.post("/api/evidence/rebuild")
-    def rebuild_evidence():
-        cv = svc.settings().get("cv_text") or ""
-        if len(cv.strip()) < 50:
-            raise HTTPException(422, "Add your CV first.")
-        svc.store.replace_cv_evidence(extract_evidence(cv, snap().inferer))
-        changed()
-        return list_evidence()
-
-    @app.post("/api/evidence/enrich")
-    def enrich_ev():
-        """One-time AI pass over the evidence bank (what you did / outcome for each line), in the background."""
-        def task(client, progress):
-            ev = [e for e in svc.store.evidence() if e["source"] == "cv" and not e["hidden"]]
-            progress.step("Reading your CV lines", 1, 1, 45 * len(ev))
-            enriched = enrich_evidence(ev, client)
-            for e in enriched:
-                if e.get("enriched"):
-                    svc.store.update_evidence(e["id"], kind=e.get("kind"), did=e.get("did"), outcome=e.get("outcome"))
-                    with svc.store._conn() as c:
-                        c.execute("UPDATE evidence SET enriched = 1 WHERE id = ?", (e["id"],))
-            changed()
-            return {"enriched": sum(1 for e in enriched if e.get("enriched"))}
-        return {"job": submit_ai("enrich", "Enriching evidence bank", task)}
-
-
-    @app.post("/api/evidence")
-    def add_ev(body: EvidenceIn):
-        if not (body.text or "").strip():
-            raise HTTPException(422, "Write what you did.")
-        inf = snap().inferer
-        from .evidence import metrics as _m, stakeholders as _s
-        eid = svc.store.add_evidence(body.text, kind=body.kind, section=body.section, context=body.context,
-                                     note=body.note, did=body.did, outcome=body.outcome, metrics=_m(body.text),
-                                     skills=inf.analyse_jd(body.text).skills, stakeholders=_s(body.text))
-        changed()
-        return {"id": eid}
-
-    @app.patch("/api/evidence/{ev_id}")
-    def edit_ev(ev_id: int, body: EvidenceIn):
-        data = body.model_dump(exclude_unset=True)
-        if "text" in data:
-            from .evidence import metrics as _m, stakeholders as _s
-            data.update(metrics=_m(data["text"]), skills=snap().inferer.analyse_jd(data["text"]).skills,
-                        stakeholders=_s(data["text"]))
-        svc.store.update_evidence(ev_id, **data)
-        changed()
-        return {"ok": True}
-
-    @app.delete("/api/evidence/{ev_id}")
-    def del_ev(ev_id: int):
-        svc.store.delete_evidence(ev_id)
-        changed()
-        return {"ok": True}
-
-    @app.post("/api/docs/{kind}/{ref_id}/{doc}")
-    def post_doc(kind: str, ref_id: int, doc: str, body: DocRun):
-        if doc in ("cv_builder", "letter_builder"):
-            return run_builder(kind, ref_id, doc, body.engine)
-        if doc not in ("target_cv", "cover_letter", "cv_tips"):
-            raise HTTPException(404)
-        src = source_for(kind, ref_id)
-        st = svc.settings()
-        cv = st.get("cv_text") or ""
-        if len(cv.strip()) < 50:
-            raise HTTPException(422, "Add your CV in Settings → Profile first.")
-        if len(src["jd"].strip()) < 80:
-            raise HTTPException(422, "Paste the full job description first.")
-        cached_fit = svc.store.get_result(kind, ref_id, "fit")
-        fit = cached_fit["result"] if cached_fit else run_fit(src["company"], src["position"], src["jd"], src["region"], "keywords")
-        eng, client, reason = resolve_engine(body.engine)
-        inf = snap().inferer
-        try:
-            if doc == "cv_tips":
-                res = cv_tips_llm(cv, src["jd"], fit, inf, client) if eng == "ollama" else cv_tips_keywords(cv, src["jd"], fit, inf)
-            elif doc == "target_cv":
-                res = (target_cv_llm(cv, src["jd"], fit, inf, client, src["position"], src["company"]) if eng == "ollama"
-                       else tailoring_guide(cv, src["jd"], fit, inf))
-            else:
-                res = (cover_letter_llm(cv, src["jd"], inf, client, src["position"], src["company"]) if eng == "ollama"
-                       else cover_letter_template(fit, src["company"], src["position"]))
-        except LLMError as e:
-            raise HTTPException(502, str(e))
-        res["fallback_reason"] = reason
-        svc.store.save_result(kind, ref_id, doc, res, res.get("method"), res.get("model"), fit_inputs_hash(src["jd"]))
-        return {"result": res, "stale": False}
+        return {"items": ev, "has_cv": has_profile()}
 
     # -------------------------------------------------------- career development
     INTERVIEW_ROUNDS = ["Recruiter screen", "First interview", "Technical interview", "Case interview",
@@ -1313,52 +1419,17 @@ def create_app(service: Service | None = None) -> FastAPI:
             if r:
                 ai_sets[u["application_id"]] = r["result"]
         return {"suggested": suggested, "history": done[:30], "upcoming": upcoming, "focus": theme["focus"],
-                "ai_sets": ai_sets, "jobs": {u["application_id"]: jobs.find(f"practice_q:{u['application_id']}") for u in upcoming}}
+                "ai_sets": ai_sets}
 
-    @app.post("/api/career/practice/questions")
-    def ai_practice_questions(body: AiQuestionsIn):
-        aid = body.application_id
-        row = get_app_row(aid)
-        jd = clean(row.get("job_description")) or ""
-
-        def task(client, progress):
-            _, _, _, theme, _, _ = practice_context()
-            progress.step("Predicting likely questions", 1, 1, 380)
-            job = B.job_profile(jd, snap().inferer) if len(jd) >= 80 else {"priorities": [], "essential": []}
-            qs = CR.practice_questions_ai(row["company"], row["position"], job, theme, client)
-            for q in qs:
-                q["ref"] = f"application:{aid}"
-            svc.store.save_result("application", aid, "practice_questions", {"questions": qs, "model": client.model},
-                                  "ollama", client.model, None)
-            return {"count": len(qs)}
-        return {"job": submit_ai(f"practice_q:{aid}", f"Practice questions · {row['company']}", task)}
-
-    def feedback_for(pid: int, engine: str | None):
+    def feedback_for(pid: int, engine: str | None = None):
         p = next((x for x in svc.store.rows("practice") if x["id"] == pid), None)
         if not p:
             raise HTTPException(404)
         if not (p.get("answer") or "").strip():
             raise HTTPException(422, "Write your answer first.")
         rules = CR.answer_feedback(p["question"], p["answer"], p.get("category"))
-        if (engine or "keywords") != "ollama":
-            svc.store.update_row("practice", pid, feedback=rules)
-            return {"feedback": rules}
-        ctx = ""
-        if (p.get("ref") or "").startswith("application:"):
-            try:
-                r = get_app_row(int(p["ref"].split(":")[1]))
-                ctx = f"{r['position']} at {r['company']}"
-            except HTTPException:
-                pass
-
-        def task(client, progress):
-            progress.step("Reading your answer", 1, 1, 260)
-            fb = CR.answer_feedback_ai(p["question"], p["answer"], ctx, client, p.get("category"))
-            svc.store.update_row("practice", pid, feedback=fb)
-            changed()
-            return {"score": fb["score"]}
-        svc.store.update_row("practice", pid, feedback=rules)  # instant version while the AI reads
-        return {"feedback": rules, "job": submit_ai(f"feedback:{pid}", "Feedback on your answer", task)}
+        svc.store.update_row("practice", pid, feedback=rules)
+        return {"feedback": rules}
 
     @app.post("/api/career/practice")
     def add_practice(body: PracticeIn):
@@ -1393,14 +1464,17 @@ def create_app(service: Service | None = None) -> FastAPI:
         p = next((x for x in svc.store.rows("practice") if x["id"] == pid), None)
         if not p:
             raise HTTPException(404)
-        return {**p, "job": jobs.find(f"feedback:{pid}")}
+        return p
 
     # Skills report
     @app.get("/api/career/skills")
     def skills_report(request: Request):
+        return skills_report_data(dict(request.query_params))
+
+    def skills_report_data(params: dict):
         s = snap()
         st = s.settings
-        df = apply_filters(s.df, dict(request.query_params)) if not s.df.empty else s.df
+        df = apply_filters(s.df, params) if not s.df.empty else s.df
         jobs_ = []
         for r in df.itertuples():
             jobs_.append({"key": f"application:{r.id}", "company": r.company, "position": r.position, "kind": "application",
@@ -1411,8 +1485,8 @@ def create_app(service: Service | None = None) -> FastAPI:
             jobs_.append({"key": f"opportunity:{r.id}", "company": r.company, "position": r.position, "kind": "opportunity",
                           "jd": clean(r.job_description) or "", "date": created})
         have = {x.strip().lower() for x in st.get("my_skills", [])}
-        cv = (st.get("cv_text") or "").lower()
-        for skill in s.inferer.analyse_jd(st.get("cv_text") or "").skills:
+        material = profile_material()
+        for skill in s.inferer.analyse_jd(material).skills:
             have.add(skill.lower())
         for e in svc.store.evidence(include_hidden=False):
             have.update(x.lower() for x in e.get("skills", []))
@@ -1422,8 +1496,33 @@ def create_app(service: Service | None = None) -> FastAPI:
                 key = f"{kind}:{ref}"
                 if any(j["key"] == key for j in jobs_):
                     fits[key] = f["result"]
-        rep = CR.skills_report(jobs_, s.inferer, have, fits)
-        rep["cv_has_text"] = bool(cv)
+        digests = 0
+        rank = {st_: i for i, st_ in enumerate(REACHED_ORDER)}
+        furthest = dict(zip(df["id"], df["furthest_stage"])) if not df.empty else {}
+        groups: dict[str, dict[str, dict]] = {"industry": {}, "seniority": {}}
+        for j in jobs_:
+            kind, ref = j["key"].split(":")
+            d = svc.store.get_result(kind, int(ref), "digest")
+            if d and d["input_hash"] == DG.jd_hash(j["jd"]):
+                j["extra_skills"] = d["result"].get("skills", [])
+                digests += 1
+                if kind == "application":
+                    stage_rank = rank.get(furthest.get(int(ref)), 0)
+                    for g in groups:
+                        label = (d["result"].get(g) or "").strip() or "Unclear"
+                        row = groups[g].setdefault(label, {"label": label, "applied": 0, "responses": 0, "interviews": 0})
+                        row["applied"] += 1
+                        row["responses"] += stage_rank >= 1
+                        row["interviews"] += stage_rank >= 2
+        rep = CR.skills_report(jobs_, s.inferer, have, fits, material=material)
+        rep["digests"] = digests
+        for g, rows in groups.items():
+            out = sorted(rows.values(), key=lambda r: (-r["applied"], r["label"]))
+            for r in out:
+                r["interview_rate"] = r["interviews"] / r["applied"] if r["applied"] else 0
+                r["response_rate"] = r["responses"] / r["applied"] if r["applied"] else 0
+            rep[f"by_{g}"] = out[:12]
+        rep["cv_has_text"] = bool(material)
         return rep
 
     # Industry notes
@@ -1465,6 +1564,7 @@ def create_app(service: Service | None = None) -> FastAPI:
     def opp_records(status: str | None = "saved") -> list[dict]:
         opp = svc.store.opportunities(status)
         fits = svc.store.results("opportunity", "fit")
+        ranks = svc.store.results("opportunity", "chat_rank")
         out = []
         for r in records(opp):
             f = fits.get(r["id"])
@@ -1477,6 +1577,8 @@ def create_app(service: Service | None = None) -> FastAPI:
                             "blockers": [b for b in res.get("blockers", []) if b["severity"] == "high"],
                             "counts": res.get("counts"), "stale": f["input_hash"] != fit_inputs_hash(jd)}
             r["has_jd"] = len(jd.strip()) >= 80
+            rk = ranks.get(r["id"])
+            r["rank"] = rk["result"] if rk else None
             r.pop("job_description", None)
             out.append(r)
         return out
@@ -1524,40 +1626,190 @@ def create_app(service: Service | None = None) -> FastAPI:
         changed()
         return {"ok": True}
 
+    @app.post("/api/opportunities/batch")
+    def batch_opps(body: OppBatchIn):
+        if body.action not in ("archive", "restore", "delete", "apply"):
+            raise HTTPException(422, "Unknown action")
+        done = 0
+        for oid in body.ids:
+            if body.action == "delete":
+                svc.store.delete_opportunity(oid)
+            elif body.action == "apply":
+                apply_opp(oid)
+            else:
+                svc.store.update_opportunity(oid, status="archived" if body.action == "archive" else "saved")
+            done += 1
+        changed()
+        return {"count": done}
+
     @app.post("/api/opportunities/{opp_id}/apply")
     def apply_opp(opp_id: int):
         o = get_opp(opp_id)
         app_id = svc.store.add_application(o["company"], o["position"], date.today(), location=o.get("location"),
                                            url=o.get("url"), source=o.get("source"), notes=o.get("notes"),
-                                           job_description=o.get("job_description"))
-        for task in ("fit", "target_cv", "cover_letter"):
+                                           job_description=o.get("job_description"), workload=o.get("workload"),
+                                           contract=o.get("contract"))
+        for task in ("fit", "cv_builder", "letter_builder", "practice_questions"):
             r = svc.store.get_result("opportunity", opp_id, task)
             if r:
                 svc.store.save_result("application", app_id, task, r["result"], r["method"], r["model"], r["input_hash"])
         svc.store.update_opportunity(opp_id, status="applied", application_id=app_id)
+        with svc.store._conn() as c:  # practice answers written for the saved job follow it
+            c.execute("UPDATE practice SET ref = ? WHERE ref = ?", (f"application:{app_id}", f"opportunity:{opp_id}"))
         changed()
         return {"application_id": app_id}
 
-    @app.get("/api/discover")
-    def discover():
-        """Saved jobs and open applications ranked by fit."""
-        opps = opp_records("saved")
-        df = snap().df
-        fits = svc.store.results("application", "fit")
-        apps = []
-        for r in records(df[df["active"]], ["id", "company", "position", "status", "location", "has_jd", "date_applied"]):
-            f = fits.get(r["id"])
-            if f:
-                res = f["result"]
-                r["fit"] = {"score": res.get("score"), "action": res["recommendation"]["action"], "method": f["method"]}
-            else:
-                r["fit"] = None
-            apps.append(r)
-        rank = {"Apply": 0, "Apply with caveats": 1, "Deprioritise": 2}
-        key = lambda x: (x["fit"] is None, rank.get((x["fit"] or {}).get("action"), 3), -((x["fit"] or {}).get("score") or 0))
-        return {"opportunities": sorted(opps, key=key), "applications": sorted([a for a in apps if a["fit"]], key=key),
-                "unscored_applications": sum(1 for a in apps if not a["fit"] and a["has_jd"])}
+    # ------------------------------------------------------------ batch actions and undo
+    @app.post("/api/applications/batch")
+    def batch_apps(body: BatchAppsIn):
+        if body.action == "delete":
+            for i in body.ids:
+                svc.store.delete_application(i)
+            changed()
+            return {"count": len(body.ids), "event_ids": []}
+        if body.action not in STAGES:
+            raise HTTPException(422, "Unknown action")
+        eids = []
+        for i in body.ids:
+            get_app_row(i)
+            eids.append(svc.store.move_stage(i, body.action, date.today(), None))
+        changed()
+        return {"count": len(eids), "event_ids": eids}
 
+    @app.post("/api/events/undo")
+    def undo_events(body: UndoIn):
+        undone = 0
+        for eid in body.event_ids:
+            try:
+                svc.store.delete_event(eid)
+                undone += 1
+            except (KeyError, ValueError):
+                pass
+        changed()
+        return {"undone": undone}
+
+    # ------------------------------------------------------------ bookmark inbox
+    @app.post("/inbox", include_in_schema=False)
+    async def inbox(request: Request):
+        """Receives a job posting from the 'Send to Job Tracker' bookmark (a normal form POST, so it works from any site)."""
+        form = await request.form()
+        import secrets
+        iid = secrets.token_urlsafe(8)
+        text = str(form.get("text") or "")[:60000]
+        svc.store.add_inbox(iid, str(form.get("title") or "")[:300], str(form.get("url") or "")[:1000], text)
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(f"/?inbox={iid}", status_code=303)
+
+    @app.get("/api/inbox/{iid}")
+    def get_inbox(iid: str):
+        item = svc.store.get_inbox(iid)
+        if not item:
+            raise HTTPException(404, "This posting has expired. Send it again.")
+        raw = clean_posting(item["text"] or "")
+        ex = P.extract(raw, item.get("title"), places())
+        text, _ = P.clean(raw)
+        guess = {k: ex[k] for k in ("position", "company", "location", "workload", "contract", "deadline")}
+        return {**item, "text": text, "guess": guess, "confidence": ex["confidence"]}
+
+    @app.get("/api/bookmarklet")
+    def bookmarklet(request: Request):
+        base = str(request.base_url).rstrip("/")
+        js = ("(()=>{const s=String(getSelection()).trim();const t=(s.length>200?s:document.body.innerText).slice(0,60000);"
+              "const f=document.createElement('form');f.method='POST';f.action='" + base + "/inbox';f.target='_blank';"
+              "f.acceptCharset='utf-8';f.style.display='none';"
+              "for(const [k,v] of Object.entries({text:t,title:document.title,url:location.href}))"
+              "{const i=document.createElement('textarea');i.name=k;i.value=v;f.appendChild(i);}"
+              "document.body.appendChild(f);f.submit();f.remove();})()")
+        return {"href": "javascript:" + js, "base": base}
+
+    # ------------------------------------------------------------ momentum, milestones, wrapped, map
+    def fun_inputs():
+        s = snap()
+        ivs = svc.store.rows("interviews")
+        return (s, svc.store.events(), ivs, svc.store.rows("interview_questions"), svc.store.rows("practice"),
+                svc.store.rows("stories"))
+
+    @app.get("/api/momentum")
+    def get_momentum():
+        s, ev, ivs, qs, pr, st = fun_inputs()
+        return FUN.momentum(s.df, ev, ivs, pr, st, int(s.settings.get("weekly_goal", 5)))
+
+    @app.get("/api/milestones")
+    def get_milestones():
+        s, ev, ivs, qs, pr, st = fun_inputs()
+        mom = FUN.momentum(s.df, ev, ivs, pr, st, int(s.settings.get("weekly_goal", 5)))
+        items = FUN.milestones(s.df, ev, ivs, qs, pr, st, mom)
+        seen = svc.store.get_setting("milestones_seen")
+        achieved = [m["id"] for m in items if m["achieved"]]
+        if seen is None:  # first run: don't celebrate everything that already happened
+            svc.store.set_setting("milestones_seen", achieved)
+            seen = achieved
+        return {"items": items, "new": [m for m in items if m["achieved"] and m["id"] not in seen]}
+
+    @app.post("/api/milestones/seen")
+    def milestones_seen(body: SeenIn):
+        seen = set(svc.store.get_setting("milestones_seen") or [])
+        svc.store.set_setting("milestones_seen", sorted(seen | set(body.ids)))
+        return {"ok": True}
+
+    @app.get("/api/analytics/companies")
+    def companies(request: Request):
+        s = snap()
+        df = apply_filters(s.df, dict(request.query_params)) if not s.df.empty else s.df
+        return FUN.company_replies(df)
+
+    @app.get("/api/map")
+    def get_map(request: Request):
+        s = snap()
+        df = apply_filters(s.df, dict(request.query_params)) if not s.df.empty else s.df
+        return FUN.map_points(df)
+
+    # ------------------------------------------------------------ prepare checklist
+    INTERVIEW_STATUSES = {"Screening", "Interview", "Final interview", "Offer", "Accepted"}
+
+    @app.get("/api/prepare/{kind}/{ref_id}")
+    def prepare_state(kind: str, ref_id: int):
+        """Fit → Apply → Interview → Journal for one job."""
+        src = source_for(kind, ref_id)
+        has_jd = len(src["jd"].strip()) >= 80
+        fit = svc.store.get_result(kind, ref_id, "fit")
+        rank = svc.store.get_result(kind, ref_id, "chat_rank")
+        fres = (fit or {}).get("result") or {}
+        steps = [{"id": "fit", "label": "Fit", "done": bool(fit), "stale": bool(fit and fit["input_hash"] != fit_inputs_hash(src["jd"])),
+                  "score": fres.get("score"), "action": (fres.get("recommendation") or {}).get("action"),
+                  "rank": rank["result"] if rank else None}]
+        if kind == "application":
+            row = get_app_row(ref_id)
+            at_interview = row["status"] in INTERVIEW_STATUSES or clean(row.get("furthest_stage")) in INTERVIEW_STATUSES
+            practised = [p for p in svc.store.rows("practice") if p.get("ref") == f"application:{ref_id}"]
+            logged = [i for i in svc.store.rows("interviews") if i.get("application_id") == ref_id]
+            steps += [{"id": "apply", "label": "Apply", "done": True, "date": str(row["date_applied"])[:10],
+                       "cv_version": clean(row.get("cv_version"))},
+                      {"id": "interview", "label": "Interview", "done": bool(practised), "relevant": at_interview,
+                       "practised": len(practised)},
+                      {"id": "journal", "label": "Journal", "done": bool(logged), "relevant": at_interview, "count": len(logged)}]
+        else:
+            o = get_opp(ref_id)
+            practised = [p for p in svc.store.rows("practice") if p.get("ref") == f"opportunity:{ref_id}"]
+            steps += [{"id": "apply", "label": "Apply", "done": False, "deadline": o.get("deadline")},
+                      {"id": "interview", "label": "Interview", "done": bool(practised), "relevant": False, "practised": len(practised)},
+                      {"id": "journal", "label": "Journal", "done": False, "relevant": False, "count": 0}]
+        return {"kind": kind, "id": ref_id, "has_jd": has_jd, "steps": steps, "has_profile": has_profile()}
+
+    @app.get("/api/prepare/{kind}/{ref_id}/interview")
+    def prepare_interview(kind: str, ref_id: int):
+        src = source_for(kind, ref_id)
+        ivs, qs, stories, theme, _upcoming, _profiles = practice_context()
+        ref = f"{kind}:{ref_id}"
+        status = get_app_row(ref_id)["status"] if kind == "application" else "Saved"
+        u = {"application_id": ref_id, "company": src["company"], "position": src["position"], "ref": ref,
+             "stage": status if status in INTERVIEW_STATUSES else "interview", "date": None, "when": "coming up"}
+        profiles = {ref_id: B.job_profile(src["jd"], snap().inferer)} if len(src["jd"]) >= 80 else {}
+        done = svc.store.rows("practice", order="updated_at DESC")
+        own = [q for q in CR.practice_set(ivs, qs, stories, [u], profiles, theme, [], limit=20) if q.get("ref") == ref][:8]
+        return {"suggested": own, "practised": [p for p in done if p.get("ref") == ref],
+                "interviews": [i for i in interview_list() if kind == "application" and i.get("application_id") == ref_id],
+                "stories": stories}
 
     # ------------------------------------------------------------ frontend
     if (WEB_DIR / "index.html").exists():
@@ -1576,29 +1828,31 @@ def create_app(service: Service | None = None) -> FastAPI:
 
 
 # A rough guess at title and company from the first lines of a pasted posting, to save typing.
-def guess_title_company(jd: str) -> dict:
-    import re
+START_MARKERS = re.compile(r"^\s*(about the job|job description|the role|about the role|role description|your role|"
+                           r"stellenbeschreibung|ihre aufgaben|your responsibilities|what you will do|position summary)\s*:?\s*$",
+                           re.I | re.M)
+END_MARKERS = re.compile(r"^\s*(show less|see less|about the company|similar jobs|people also viewed|more jobs|"
+                         r"set alert for similar jobs|report this job|apply now|share this job|jobs you may be interested in|"
+                         r"über uns)\s*$", re.I | re.M)
 
-    lines = [ln.strip(" \t•-–|") for ln in jd.strip().splitlines() if ln.strip()][:8]
-    title = company = None
-    for ln in lines:
-        m = re.match(r"^(?:job title|position|role|title)\s*[:\-]\s*(.+)$", ln, re.I)
-        if m and not title:
-            title = m.group(1).strip()
-        m = re.match(r"^(?:company|employer|organisation|organization)\s*[:\-]\s*(.+)$", ln, re.I)
-        if m and not company:
-            company = m.group(1).strip()
-    if not title and lines and len(lines[0]) <= 90 and not lines[0].endswith("."):
-        title = lines[0]
-    patterns = [
-        r"^([A-Z][\w&.'\- ]{1,40}?)\s+(?:is|are)\s+(?:hiring|looking|seeking|searching|recruiting)\b",
-        r"^About\s+([A-Z][\w&.'\- ]{1,40}?)\s*$",
-        r"\b(?:at|join|joining)\s+([A-Z][\w&.'\-]+(?: [A-Z][\w&.'\-]+){0,3})(?:[,.!]| is | as | we | and | to |$)",
-    ]
-    for pat in patterns:
-        if company:
-            break
-        m = re.search(pat, jd, re.M)
-        if m:
-            company = m.group(1).strip()
-    return {"position": title, "company": company}
+
+def clean_posting(text: str) -> str:
+    """Cut a whole web page down to the job posting when the usual headings are there."""
+    t = re.sub(r"\r", "", text or "")
+    t = re.sub(r"\n{3,}", "\n\n", t).strip()
+    m = START_MARKERS.search(t)
+    if m and m.start() < len(t) * 0.8:
+        t = t[m.start():]
+    e = END_MARKERS.search(t, min(200, len(t) // 3))
+    if e:
+        t = t[:e.start()]
+    return t.strip()
+
+
+def title_guess(title: str) -> dict:
+    return P.title_from_page(title)
+
+
+def guess_title_company(jd: str) -> dict:
+    ex = P.extract(jd)
+    return {"position": ex["position"], "company": ex["company"]}
